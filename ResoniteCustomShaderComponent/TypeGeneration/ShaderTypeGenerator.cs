@@ -116,26 +116,24 @@ public static class ShaderTypeGenerator
     /// <returns>The defined fields.</returns>
     private static List<FieldBuilder> DefineDynamicMaterialPropertyFields(this TypeBuilder typeBuilder, Shader shader)
     {
-        var materialPropertyFields = new List<FieldBuilder>();
-        for (var i = 0; i < shader.GetPropertyCount(); ++i)
-        {
-            var propertyName = shader.GetPropertyName(i);
-            var propertyType = shader.GetPropertyType(i);
-            var propertyFlags = shader.GetPropertyFlags(i);
+        var nativeProperties = NativeMaterialProperty.GetProperties(shader);
 
-            if (propertyFlags.HasFlag(ShaderPropertyFlags.HideInInspector))
+        var materialPropertyFields = new List<FieldBuilder>();
+        foreach (var nativeProperty in nativeProperties)
+        {
+            if (nativeProperty.Flags.HasFlag(ShaderPropertyFlags.HideInInspector))
             {
-                UniLog.Log($"Shader property \"{propertyName}\" is marked as HideInInspector - skipping");
+                UniLog.Log($"Shader property \"{nativeProperty.Name}\" is marked as HideInInspector - skipping");
                 continue;
             }
 
-            var propertyRuntimeType = propertyType switch
+            var propertyRuntimeType = nativeProperty.Type switch
             {
                 ShaderPropertyType.Color => typeof(colorX),
                 ShaderPropertyType.Vector => typeof(float4),
                 ShaderPropertyType.Float => typeof(float),
                 ShaderPropertyType.Range => typeof(float),
-                ShaderPropertyType.Texture => shader.GetPropertyTextureDimension(i) switch
+                ShaderPropertyType.Texture => nativeProperty.TextureDimension switch
                 {
                     TextureDimension.Tex2D => typeof(ITexture2D),
                     TextureDimension.Cube => typeof(Cubemap),
@@ -147,13 +145,13 @@ public static class ShaderTypeGenerator
             if (propertyRuntimeType is null)
             {
                 // not a type we support
-                UniLog.Log($"Shader property \"{propertyName}\" has an unsupported type \"{propertyType}\" - skipping");
+                UniLog.Log($"Shader property \"{nativeProperty.Name}\" has an unsupported type \"{nativeProperty.Type}\" - skipping");
                 continue;
             }
 
             UniLog.Log
             (
-                $"Adding shader property \"{propertyName}\" with shader type \"{propertyType}\" and runtime type "
+                $"Adding shader property \"{nativeProperty.Name}\" with shader type \"{nativeProperty.Type}\" and runtime type "
                 + $"\"{propertyRuntimeType}\""
             );
 
@@ -161,14 +159,14 @@ public static class ShaderTypeGenerator
 
             var fieldBuilder = typeBuilder.DefineField
             (
-                propertyName,
+                nativeProperty.Name,
                 propertyRefType.MakeGenericType(propertyRuntimeType),
                 FieldAttributes.Public | FieldAttributes.InitOnly
             );
 
-            if (propertyType is ShaderPropertyType.Range)
+            if (nativeProperty.IsRange)
             {
-                var rangeLimits = shader.GetPropertyRangeLimits(i);
+                var rangeLimits = nativeProperty.RangeLimits.Value;
                 var rangeConstructor = typeof(RangeAttribute).GetConstructors()[0];
                 var attributeBuilder = new CustomAttributeBuilder
                 (
@@ -182,13 +180,7 @@ public static class ShaderTypeGenerator
                 fieldBuilder.SetCustomAttribute(attributeBuilder);
             }
 
-            object? defaultValue = propertyType switch
-            {
-                ShaderPropertyType.Float or ShaderPropertyType.Range => shader.GetPropertyDefaultFloatValue(i),
-                //ShaderPropertyType.Texture => shader.GetPropertyTextureDefaultName(i), TODO: map names to textures somewhere somehow
-                _ => null
-            };
-
+            object? defaultValue = nativeProperty.IsScalar ? nativeProperty.DefaultValue.Value : null;
             if (defaultValue is not null)
             {
                 var defaultValueConstructor = typeof(DefaultValue).GetConstructors()[0];
@@ -202,7 +194,7 @@ public static class ShaderTypeGenerator
                 fieldBuilder.SetCustomAttribute(attributeBuilder);
             }
 
-            if (propertyFlags.HasFlag(ShaderPropertyFlags.Normal))
+            if (nativeProperty.Flags.HasFlag(ShaderPropertyFlags.Normal))
             {
                 var normalMapConstructor = typeof(NormalMapAttribute).GetConstructors()[0];
                 var attributeBuilder = new CustomAttributeBuilder
