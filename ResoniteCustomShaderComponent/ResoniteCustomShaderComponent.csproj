@@ -1,0 +1,35 @@
+﻿<Project Sdk="Remora.Sdk">
+    <Sdk Name="Remora.Resonite.Sdk" />
+
+    <PropertyGroup>
+        <LegalLicense>AGPL-3.0-or-later</LegalLicense>
+        <LegalAuthor>Jarl Gullberg</LegalAuthor>
+        <LegalEmail>jarl.gullberg@gmail.com</LegalEmail>
+        <UseSPDXFileHeaders>true</UseSPDXFileHeaders>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <ResoniteProjectType>plugin</ResoniteProjectType>
+        <ResoniteTarget>client</ResoniteTarget>
+        <ResoniteInstallOnBuild>true</ResoniteInstallOnBuild>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <LangVersion>latest</LangVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ResoniteReference Include="FrooxEngine" />
+        <ResoniteReference Include="FrooxEngine.Store" />
+        <ResoniteReference Include="FrooxEngine.Weaver" />
+        <ResoniteReference Include="System.Threading.Tasks.Extensions" />
+        <ResoniteReference Include="Elements.Assets" />
+        <ResoniteReference Include="Elements.Core" />
+        <ResoniteReference Include="SkyFrost.Base" />
+        <ResoniteReference Include="UnityFrooxEngineRunner" />
+        <ResoniteReference Include="UnityEngine.CoreModule" />
+    </ItemGroup>
+
+</Project>
