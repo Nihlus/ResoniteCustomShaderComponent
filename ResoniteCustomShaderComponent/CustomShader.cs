@@ -36,10 +36,8 @@ public class CustomShader : Component
     public readonly ReadOnlyRef<DynamicShader?> ShaderProperties = new();
 
     /// <inheritdoc />
-    protected override void OnInit()
+    public CustomShader()
     {
-        base.OnInit();
-
         this.ShaderURL.OnValueChange += OnShaderURLValueChange;
         this.Shader.Changed += OnShaderChanged;
         this.Shader.ListenToAssetUpdates = true;
