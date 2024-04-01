@@ -4,6 +4,8 @@
 //  SPDX-License-Identifier: AGPL-3.0-or-later
 //
 
+using System.Collections.Concurrent;
+using System.Reflection;
 using Elements.Core;
 using FrooxEngine;
 using ResoniteCustomShaderComponent.Shaders;
@@ -86,6 +88,10 @@ public class CustomShader : Component
                             // same type, no need to modify
                             return;
                         }
+
+                        var typeTableField = typeof(WorkerManager).GetField("typeTable", BindingFlags.Static | BindingFlags.NonPublic)!;
+                        var typeTable = (ConcurrentDictionary<string, Type>)typeTableField.GetValue(null);
+                        _ = typeTable.AddOrUpdate(shaderType.FullName, _ => shaderType, (_, _) => shaderType);
 
                         this.World.RunSynchronously(() =>
                         {
