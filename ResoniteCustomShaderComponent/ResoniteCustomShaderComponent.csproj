@@ -32,4 +32,8 @@
         <ResoniteReference Include="UnityEngine.CoreModule" />
     </ItemGroup>
 
+    <ItemGroup>
+      <PackageReference Include="StrictEmit" Version="2.8.0" />
+    </ItemGroup>
+
 </Project>

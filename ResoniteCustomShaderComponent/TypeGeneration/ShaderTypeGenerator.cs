@@ -10,6 +10,7 @@ using System.Reflection.Emit;
 using Elements.Core;
 using FrooxEngine;
 using ResoniteCustomShaderComponent.Shaders;
+using StrictEmit;
 using UnityEngine.Rendering;
 
 using Shader = UnityEngine.Shader;
@@ -240,39 +241,30 @@ public static class ShaderTypeGenerator
         );
 
         var constructorIL = constructorBuilder.GetILGenerator();
+        var syncMemberListLocal = constructorIL.DeclareLocal(typeof(List<ISyncMember>));
+        var syncMemberNameMapLocal = constructorIL.DeclareLocal(typeof(Dictionary<ISyncMember, MaterialProperty>));
 
         // stack: <empty>
-        constructorIL.Emit(OpCodes.Ldarg_0);
+        constructorIL.EmitLoadArgument(0);
 
         // stack:
         //   this
-        constructorIL.Emit
-        (
-            OpCodes.Call,
-            typeof(DynamicShader).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null, Type.EmptyTypes, [])!
-        );
+        var baseConstructor = typeof(DynamicShader).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null, Type.EmptyTypes, []);
+        constructorIL.EmitCallDirect(baseConstructor);
 
-        var syncMemberListConstructor = typeof(List<ISyncMember>).GetConstructor([])!;
-        var syncMemberListAdd = typeof(List<ISyncMember>).GetMethod
-        (
-            nameof(List<ISyncMember>.Add), [typeof(ISyncMember)]
-        )!;
+        // stack: <empty>
+        constructorIL.EmitNewObject<List<ISyncMember>>();
 
-        var syncMemberNameMapConstructor = typeof(Dictionary<ISyncMember, MaterialProperty>).GetConstructor([])!;
-        var syncMemberNameMapAdd = typeof(Dictionary<ISyncMember, MaterialProperty>).GetMethod
-        (
-            nameof(Dictionary<ISyncMember, MaterialProperty>.Add)
-        )!;
+        // stack:
+        //   List<ISyncMember>
+        constructorIL.EmitSetLocalVariable(syncMemberListLocal);
 
-        var syncMemberListLocal = constructorIL.DeclareLocal(typeof(List<ISyncMember>));
-        constructorIL.Emit(OpCodes.Newobj, syncMemberListConstructor);
-        constructorIL.Emit(OpCodes.Stloc, syncMemberListLocal);
+        // stack: <empty>
+        constructorIL.EmitNewObject<Dictionary<ISyncMember, MaterialProperty>>();
 
-        var syncMemberNameMapLocal = constructorIL.DeclareLocal(typeof(Dictionary<ISyncMember, MaterialProperty>));
-        constructorIL.Emit(OpCodes.Newobj, syncMemberNameMapConstructor);
-        constructorIL.Emit(OpCodes.Stloc, syncMemberNameMapLocal);
-
-        var materialPropertyConstructor = typeof(MaterialProperty).GetConstructor([typeof(string)])!;
+        // stack:
+        //   Dictionary<ISyncMember, MaterialProperty>
+        constructorIL.EmitSetLocalVariable(syncMemberNameMapLocal);
 
         foreach (var syncField in materialPropertyFields)
         {
@@ -280,84 +272,84 @@ public static class ShaderTypeGenerator
 
             // create syncField, store it in a local
             var local = constructorIL.DeclareLocal(syncField.FieldType);
-            constructorIL.Emit(OpCodes.Newobj, syncFieldConstructor);
-            constructorIL.Emit(OpCodes.Stloc, local);
+            constructorIL.EmitNewObject(syncFieldConstructor);
+            constructorIL.EmitSetLocalVariable(local);
 
             // stack: <empty>
-            constructorIL.Emit(OpCodes.Ldloc, syncMemberListLocal);
+            constructorIL.EmitLoadLocalVariable(syncMemberListLocal);
 
             // stack:
             //   List<ISyncMember>
-            constructorIL.Emit(OpCodes.Ldloc, local);
+            constructorIL.EmitLoadLocalVariable(local);
 
             // stack:
             //   List<ISyncMember>
             //   ISyncMember
-            constructorIL.Emit(OpCodes.Callvirt, syncMemberListAdd);
+            constructorIL.EmitCallVirtual<List<ISyncMember>>(nameof(List<ISyncMember>.Add));
 
             // stack: <empty>
-            constructorIL.Emit(OpCodes.Ldloc, syncMemberNameMapLocal);
+            constructorIL.EmitLoadLocalVariable(syncMemberNameMapLocal);
 
             // stack:
             //   Dictionary<ISyncMember, MaterialProperty>
-            constructorIL.Emit(OpCodes.Ldloc, local);
+            constructorIL.EmitLoadLocalVariable(local);
 
             // stack:
             //   Dictionary<ISyncMember, MaterialProperty>
             //   ISyncMember
-            constructorIL.Emit(OpCodes.Ldstr, syncField.Name);
+            constructorIL.EmitConstantString(syncField.Name);
 
             // stack:
             //   Dictionary<ISyncMember, MaterialProperty>
             //   ISyncMember
             //   string
-            constructorIL.Emit(OpCodes.Newobj, materialPropertyConstructor);
+            constructorIL.EmitNewObject<MaterialProperty>(typeof(string));
 
             // stack:
             //   Dictionary<ISyncMember, MaterialProperty>
             //   ISyncMember
             //   MaterialProperty
-            constructorIL.Emit(OpCodes.Callvirt, syncMemberNameMapAdd);
+            constructorIL.EmitCallVirtual<Dictionary<ISyncMember, MaterialProperty>>(nameof(Dictionary<ISyncMember, MaterialProperty>.Add));
 
             // stack: <empty>
-            constructorIL.Emit(OpCodes.Ldarg_0);
+            constructorIL.EmitLoadArgument(0);
 
             // stack:
             //   this
-            constructorIL.Emit(OpCodes.Ldloc, local);
+            constructorIL.EmitLoadLocalVariable(local);
 
             // stack:
             //   this
             //   ISyncMember
-            constructorIL.Emit(OpCodes.Stfld, syncField);
+            constructorIL.EmitSetField(syncField);
         }
 
         // stack: <empty>
-        constructorIL.Emit(OpCodes.Ldarg_0);
+        constructorIL.EmitLoadArgument(0);
 
         // stack:
         //   this
-        constructorIL.Emit(OpCodes.Ldloc, syncMemberListLocal);
+        constructorIL.EmitLoadLocalVariable(syncMemberListLocal);
 
         // stack:
         //   this
         //   List<ISyncMember>
-        constructorIL.Emit(OpCodes.Stfld, propertyMembersField);
+        constructorIL.EmitSetField(propertyMembersField);
 
         // stack: <empty>
-        constructorIL.Emit(OpCodes.Ldarg_0);
+        constructorIL.EmitLoadArgument(0);
 
         // stack:
         //   this
-        constructorIL.Emit(OpCodes.Ldloc, syncMemberNameMapLocal);
+        constructorIL.EmitLoadLocalVariable(syncMemberNameMapLocal);
 
         // stack:
         //   this
         //   Dictionary<ISyncMember, MaterialProperty>
-        constructorIL.Emit(OpCodes.Stfld, propertyNamesField);
+        constructorIL.EmitSetField(propertyNamesField);
 
         // stack: <empty>
-        constructorIL.Emit(OpCodes.Ret);
+        constructorIL.EmitReturn();
     }
 
     /// <summary>
@@ -384,9 +376,9 @@ public static class ShaderTypeGenerator
         );
 
         var getMaterialPropertyMembersIL = getMaterialPropertyMembers.GetILGenerator();
-        getMaterialPropertyMembersIL.Emit(OpCodes.Ldarg_0);
-        getMaterialPropertyMembersIL.Emit(OpCodes.Ldfld, propertyMembersField);
-        getMaterialPropertyMembersIL.Emit(OpCodes.Ret);
+        getMaterialPropertyMembersIL.EmitLoadArgument(0);
+        getMaterialPropertyMembersIL.EmitLoadField(propertyMembersField);
+        getMaterialPropertyMembersIL.EmitReturn();
 
         typeBuilder.DefineMethodOverride
         (
@@ -421,9 +413,9 @@ public static class ShaderTypeGenerator
         );
 
         var getMaterialPropertyNamesIL = getMaterialPropertyNames.GetILGenerator();
-        getMaterialPropertyNamesIL.Emit(OpCodes.Ldarg_0);
-        getMaterialPropertyNamesIL.Emit(OpCodes.Ldfld, propertyNamesField);
-        getMaterialPropertyNamesIL.Emit(OpCodes.Ret);
+        getMaterialPropertyNamesIL.EmitLoadArgument(0);
+        getMaterialPropertyNamesIL.EmitLoadField(propertyNamesField);
+        getMaterialPropertyNamesIL.EmitReturn();
 
         typeBuilder.DefineMethodOverride
         (
