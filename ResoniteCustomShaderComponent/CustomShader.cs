@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using Elements.Core;
 using FrooxEngine;
+using FrooxEngine.UIX;
 using ResoniteCustomShaderComponent.Shaders;
 using ResoniteCustomShaderComponent.TypeGeneration;
 using UnityFrooxEngineRunner;
@@ -20,7 +21,7 @@ namespace ResoniteCustomShaderComponent;
 /// Represents a custom, dynamically loaded shader.
 /// </summary>
 [Category(["Assets/Materials"])]
-public class CustomShader : Component
+public class CustomShader : AssetProvider<Material>, ICustomInspector
 {
     /// <summary>
     /// Gets the Uri of the shader bundle used by the shader program.
@@ -30,11 +31,13 @@ public class CustomShader : Component
     /// <summary>
     /// Gets the loaded shader.
     /// </summary>
+    [HideInInspector]
     public readonly AssetRef<Shader?> Shader = new();
 
     /// <summary>
     /// Gets the dynamically generated shader properties.
     /// </summary>
+    [HideInInspector]
     public readonly ReadOnlyRef<DynamicShader?> ShaderProperties = new();
 
     /// <inheritdoc />
@@ -53,7 +56,8 @@ public class CustomShader : Component
             return;
         }
 
-        if (ShaderTypeGenerator.TryGetShaderType(assetRef.Target.Asset!.AssetURL, out var existingShaderType))
+        var shaderUrl = assetRef.Target.Asset!.AssetURL;
+        if (ShaderTypeGenerator.TryGetShaderType(shaderUrl, out var existingShaderType))
         {
             if (this.ShaderProperties.Target?.GetType() == existingShaderType)
             {
@@ -61,7 +65,7 @@ public class CustomShader : Component
             }
         }
 
-        _ = Task.Run(() => LoadUnityShaderAsync(assetRef!))
+        _ = Task.Run(() => ShaderTypeGenerator.LoadUnityShaderAsync(shaderUrl))
             .ContinueWith
             (
                 loadShader =>
@@ -72,6 +76,8 @@ public class CustomShader : Component
 
                         this.ShaderProperties.Target?.Destroy();
                         this.ShaderProperties.ForceWrite(null);
+
+                        AssetRemoved();
                         return;
                     }
 
@@ -89,23 +95,21 @@ public class CustomShader : Component
                             return;
                         }
 
-                        var typeTableField = typeof(WorkerManager).GetField("typeTable", BindingFlags.Static | BindingFlags.NonPublic)!;
-                        var typeTable = (ConcurrentDictionary<string, Type>)typeTableField.GetValue(null);
-                        _ = typeTable.AddOrUpdate(shaderType.FullName, _ => shaderType, (_, _) => shaderType);
-
                         this.World.RunSynchronously(() =>
                         {
                             UniLog.Log("Creating shader instance");
                             var shader = (DynamicShader)this.Slot.AttachComponent(shaderType, beforeAttach: c =>
                             {
                                 ((DynamicShader)c).SetShader(assetRef.Target!);
-                                c.Persistent = true;
-                                c.Enabled = true;
+                                ((DynamicShader)c).DriveControlFields(this.persistent, this.updateOrder, this.EnabledField);
                             });
 
                             // get outta here
                             this.ShaderProperties.Target?.Destroy();
                             this.ShaderProperties.ForceWrite(shader);
+
+                            AssetUpdated();
+                            shader.Changed += _ => AssetUpdated();
                         });
                     }
                     catch (Exception e)
@@ -115,23 +119,6 @@ public class CustomShader : Component
                     }
                 }
             );
-    }
-
-    private async Task<UnityEngine.Shader?> LoadUnityShaderAsync(AssetRef<Shader> assetRef)
-    {
-        var shaderConnector = (ShaderConnector)assetRef.Target.Asset.Connector;
-        if (shaderConnector.UnityShader is not null)
-        {
-            return shaderConnector.UnityShader;
-        }
-
-        var liveVariantCompletionSource = new TaskCompletionSource<Shader>();
-        assetRef.Target.Asset.RequestVariant(0, (_, _, variant) =>
-        {
-            liveVariantCompletionSource.SetResult(variant);
-        });
-
-        return (await liveVariantCompletionSource.Task).GetUnity();
     }
 
     private void OnShaderURLValueChange(SyncField<Uri?> sync)
@@ -178,6 +165,8 @@ public class CustomShader : Component
                 true,
                 false
             );
+
+            return;
         }
 
         var componentOrCreate = this.World.GetSharedComponentOrCreate<StaticShader>
@@ -190,5 +179,35 @@ public class CustomShader : Component
 
         componentOrCreate.Persistent = false;
         this.Shader.Target = componentOrCreate;
+    }
+
+    /// <inheritdoc />
+    protected override void OnDestroy()
+    {
+        base.OnDestroy();
+        this.ShaderProperties.Target?.Destroy();
+    }
+
+    /// <inheritdoc />
+    protected override void FreeAsset()
+    {
+    }
+
+    /// <inheritdoc />
+    protected override void UpdateAsset()
+    {
+    }
+
+    /// <inheritdoc />
+    public override bool IsAssetAvailable => this.ShaderProperties.Target?.IsAssetAvailable ?? false;
+
+    /// <inheritdoc />
+    public override Material Asset => this.ShaderProperties.Target?.Asset!;
+
+    /// <inheritdoc />
+    public void BuildInspectorUI(UIBuilder ui)
+    {
+        WorkerInspector.BuildInspectorUI(this, ui);
+        this.ShaderProperties.Target?.BuildNestedInspectorUI(ui);
     }
 }

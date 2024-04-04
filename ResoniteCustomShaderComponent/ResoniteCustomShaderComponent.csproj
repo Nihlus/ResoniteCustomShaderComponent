@@ -30,9 +30,11 @@
         <ResoniteReference Include="SkyFrost.Base" />
         <ResoniteReference Include="UnityFrooxEngineRunner" />
         <ResoniteReference Include="UnityEngine.CoreModule" />
+        <ResoniteReference Include="System.ValueTuple" />
     </ItemGroup>
 
     <ItemGroup>
+      <PackageReference Include="Lib.Harmony" Version="2.3.3" />
       <PackageReference Include="StrictEmit" Version="2.8.0" />
     </ItemGroup>
 

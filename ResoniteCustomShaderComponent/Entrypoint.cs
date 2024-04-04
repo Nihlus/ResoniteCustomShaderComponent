@@ -6,6 +6,8 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using HarmonyLib;
+using ResoniteCustomShaderComponent.TypeGeneration;
 
 [module: Description("FROOXENGINE_WEAVED")]
 
@@ -22,5 +24,16 @@ public static class Entrypoint
     public static void Start()
     {
         Debugger.Break();
+
+        try
+        {
+            var harmony = new Harmony("nu.algiz.resonite.custom-shaders");
+            harmony.PatchAll();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
     }
 }
