@@ -78,7 +78,7 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
             await this.Engine.LocalDB.WriteVariableAsync(assetSignature, true);
             UniLog.Log("Shader whitelisted");
 
-            var shaderType = await ShaderTypeGenerator.GetOrGenerateShaderTypeAsync(shaderUrl);
+            var shaderType = await DynamicShaderRepository.GetDynamicShaderTypeAsync(shaderUrl);
             if (shaderType is null)
             {
                 worldCompletionSource = new();
