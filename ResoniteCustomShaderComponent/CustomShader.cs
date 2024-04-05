@@ -99,9 +99,7 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
 
             if (this.ShaderProperties.Target?.GetType() == shaderType)
             {
-                // same type, no need to modify - just update the now-loaded shader. We don't notify of any asset
-                // changes here, letting the material itself propagate changes
-                this.ShaderProperties.Target?.SetShaderURL(shaderUrl);
+                // no changes necessary
                 return;
             }
 

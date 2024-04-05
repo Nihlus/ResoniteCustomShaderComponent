@@ -25,7 +25,8 @@ public abstract class DynamicShader : SingleShaderMaterialProvider
     [HideInInspector]
     private readonly SyncRef<IComponent?> _updateOrderDrive = new();
 
-    private Uri? _shaderUrl;
+    [HideInInspector]
+    private readonly Sync<Uri?> _shaderUrl = new();
 
     /// <inheritdoc />
     public override PropertyState PropertyInitializationState { get; protected set; }
@@ -42,7 +43,7 @@ public abstract class DynamicShader : SingleShaderMaterialProvider
     /// Sets the URL of the shader wrapped by the dynamic shader.
     /// </summary>
     /// <param name="shaderUrl">The shader URL.</param>
-    internal void SetShaderURL(Uri shaderUrl) => _shaderUrl = shaderUrl;
+    internal void SetShaderURL(Uri shaderUrl) => _shaderUrl.Value = shaderUrl;
 
     /// <summary>
     /// Gets a list of <see cref="ISyncMember"/> values mapping to the shader's defined properties.
