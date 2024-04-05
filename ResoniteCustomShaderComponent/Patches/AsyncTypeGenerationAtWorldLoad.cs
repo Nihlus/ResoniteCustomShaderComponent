@@ -89,7 +89,7 @@ public static class AsyncTypeGenerationAtWorldLoad
         UniLog.Log("Got asset at path: " + str + ", loading world");
         var node = DataTreeConverter.Load(str, assetUrl);
 
-        await Task.Run(() => DynamicShaderRepository.EnsureDynamicShaderTypesAsync(node));
+        await DynamicShaderRepository.EnsureDynamicShaderTypesAsync(node);
 
         await default(ToWorld);
 
