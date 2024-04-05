@@ -14,6 +14,7 @@ using FrooxEngine;
 using ResoniteCustomShaderComponent.Extensions;
 using ResoniteCustomShaderComponent.Shaders;
 using StrictEmit;
+using UnityEngine;
 using UnityEngine.Rendering;
 using UnityFrooxEngineRunner;
 using Cubemap = FrooxEngine.Cubemap;
@@ -34,6 +35,9 @@ public static class ShaderTypeGenerator
 
     private static readonly Version _generatedShaderVersion = new(1, 0, 0);
 
+    private static readonly ConcurrentDictionary<Uri, Shader> _unityShaders = new();
+    private static readonly SemaphoreSlim _shaderIntegrationLock = new(1);
+
     /// <summary>
     /// Holds a mapping between shader URIs and generated material types.
     /// </summary>
@@ -42,7 +46,7 @@ public static class ShaderTypeGenerator
     /// <summary>
     /// Holds the locking object used to synchronized generation operations.
     /// </summary>
-    private static readonly object _typeGenerationLock = new();
+    private static readonly SemaphoreSlim _typeGenerationLock = new(1);
 
     private static readonly IReadOnlyDictionary<Type, MethodInfo> _materialPropertyUpdateMethods = new Dictionary<Type, MethodInfo>
     {
@@ -59,35 +63,6 @@ public static class ShaderTypeGenerator
     private static readonly MethodInfo _materialPropertyUpdateSTMethod = typeof(Material).GetMethod(nameof(Material.UpdateST))!;
     private static readonly MethodInfo _materialPropertyUpdateTextureMethod = typeof(Material).GetMethod(nameof(Material.UpdateTexture), [typeof(int), typeof(AssetRef<ITexture2D>), typeof(ColorProfile), typeof(ColorProfileRequirement)])!;
     private static readonly MethodInfo _materialPropertyUpdateNormalMapMethod = typeof(Material).GetMethod(nameof(Material.UpdateNormalMap))!;
-
-    /// <summary>
-    /// Attempts to get a previously-generated type for the given shader URL.
-    /// </summary>
-    /// <param name="shaderUrl">The Resonite cloud URI to the shader.</param>
-    /// <param name="generatedType">The type that's been generated for the shader.</param>
-    /// <returns>True if a generated type was found; otherwise, false.</returns>
-    public static bool TryGetShaderType(Uri shaderUrl, [NotNullWhen(true)] out Type? generatedType)
-    {
-        var shaderHash = Path.GetFileNameWithoutExtension(shaderUrl.ToString());
-        return TryGetShaderType(shaderHash, out generatedType);
-    }
-
-    /// <summary>
-    /// Attempts to get a previously-generated type for the given shader hash.
-    /// </summary>
-    /// <param name="shaderHash">The hash of the shader.</param>
-    /// <param name="generatedType">The type that's been generated for the shader.</param>
-    /// <returns>True if a generated type was found; otherwise, false.</returns>
-    public static bool TryGetShaderType(string shaderHash, [NotNullWhen(true)] out Type? generatedType)
-    {
-        if (_dynamicShaderTypes.TryGetValue(shaderHash, out generatedType))
-        {
-            return true;
-        }
-
-        // see if we have a cached assembly
-        return TryLoadCachedShaderType(shaderHash, out generatedType);
-    }
 
     /// <summary>
     /// Loads cached or generates new shader types for worker nodes in the given data tree node.
@@ -116,7 +91,6 @@ public static class ShaderTypeGenerator
                             }
 
                             _ = await GetOrGenerateShaderTypeAsync(new Uri($"resdb:///{typename}.unityshader"));
-                            continue;
                         }
                     }
 
@@ -128,6 +102,54 @@ public static class ShaderTypeGenerator
                     continue;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Gets a previously-generated type for the given shader URL and shader combination, or generates one if one does
+    /// not already exist.
+    /// </summary>
+    /// <remarks>This method is thread-safe.</remarks>
+    /// <param name="shaderUrl">The Resonite cloud URI to the shader.</param>
+    /// <returns>The generated type.</returns>
+    public static async Task<Type?> GetOrGenerateShaderTypeAsync(Uri shaderUrl)
+    {
+        var shaderHash = Path.GetFileNameWithoutExtension(shaderUrl.ToString());
+        if (_dynamicShaderTypes.TryGetValue(shaderHash, out var shaderType))
+        {
+            return shaderType;
+        }
+
+        var shader = await LoadUnityShaderAsync(shaderUrl);
+        if (shader is null)
+        {
+            return null;
+        }
+
+        await _typeGenerationLock.WaitAsync();
+        try
+        {
+            if (_dynamicShaderTypes.TryGetValue(shaderHash, out shaderType))
+            {
+                return shaderType;
+            }
+
+            return _dynamicShaderTypes.GetOrAdd
+            (
+                shaderHash,
+                hash => TryLoadCachedShaderType(hash, out var cachedShader)
+                    ? cachedShader
+                    : DefineDynamicShaderType(shaderHash, shader)
+            );
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+        finally
+        {
+            _typeGenerationLock.Release();
         }
     }
 
@@ -177,51 +199,6 @@ public static class ShaderTypeGenerator
     }
 
     /// <summary>
-    /// Gets a previously-generated type for the given shader URL and shader combination, or generates one if one does
-    /// not already exist.
-    /// </summary>
-    /// <remarks>This method is thread-safe.</remarks>
-    /// <param name="shaderUrl">The Resonite cloud URI to the shader.</param>
-    /// <param name="shader">The Unity shader that corresponds to the URI.</param>
-    /// <returns>The generated type.</returns>
-    public static Type GetOrGenerateShaderType(Uri shaderUrl, Shader shader)
-    {
-        var shaderHash = Path.GetFileNameWithoutExtension(shaderUrl.ToString());
-        return _dynamicShaderTypes.GetOrAdd
-        (
-            shaderHash,
-            hash => TryLoadCachedShaderType(hash, out var cachedShader)
-                ? cachedShader
-                : DefineDynamicShaderType(shaderHash, shader)
-        );
-    }
-
-    /// <summary>
-    /// Gets a previously-generated type for the given shader URL and shader combination, or generates one if one does
-    /// not already exist.
-    /// </summary>
-    /// <remarks>This method is thread-safe.</remarks>
-    /// <param name="shaderUrl">The Resonite cloud URI to the shader.</param>
-    /// <returns>The generated type.</returns>
-    private static async Task<Type?> GetOrGenerateShaderTypeAsync(Uri shaderUrl)
-    {
-        var shader = await LoadUnityShaderAsync(shaderUrl);
-        if (shader is null)
-        {
-            return null;
-        }
-
-        var shaderHash = Path.GetFileNameWithoutExtension(shaderUrl.ToString());
-        return _dynamicShaderTypes.GetOrAdd
-        (
-            shaderHash,
-            hash => TryLoadCachedShaderType(hash, out var cachedShader)
-                ? cachedShader
-                : DefineDynamicShaderType(shaderHash, shader)
-        );
-    }
-
-    /// <summary>
     /// Defines a dynamic shader type based on the given Unity shader.
     /// </summary>
     /// <param name="shaderHash">The Resonite cloud URI to the shader.</param>
@@ -229,59 +206,50 @@ public static class ShaderTypeGenerator
     /// <returns>The shader type.</returns>
     private static Type DefineDynamicShaderType(string shaderHash, Shader shader)
     {
-        try
+        UniLog.Log($"Creating new dynamic shader type for {shaderHash}");
+        var dynamicAssemblyName = new AssemblyName(_dynamicAssemblyName)
         {
-            UniLog.Log($"Creating new dynamic shader type for {shaderHash}");
-            var dynamicAssemblyName = new AssemblyName(_dynamicAssemblyName);
-            dynamicAssemblyName.Version = _generatedShaderVersion;
+            Version = _generatedShaderVersion
+        };
 
-            lock (_typeGenerationLock)
-            {
-                var cachedShaderPath = GetCachedShaderPath(shaderHash);
-                var cachedShaderDirectory = Path.GetDirectoryName(cachedShaderPath);
-                var cachedShaderFilename = Path.GetFileName(cachedShaderPath);
+        var cachedShaderPath = GetCachedShaderPath(shaderHash);
+        var cachedShaderDirectory = Path.GetDirectoryName(cachedShaderPath);
+        var cachedShaderFilename = Path.GetFileName(cachedShaderPath);
 
-                var dynamicAssembly = AppDomain.CurrentDomain.DefineDynamicAssembly
-                (
-                    dynamicAssemblyName,
-                    AssemblyBuilderAccess.RunAndSave,
-                    cachedShaderDirectory
-                );
+        var dynamicAssembly = AppDomain.CurrentDomain.DefineDynamicAssembly
+        (
+            dynamicAssemblyName,
+            AssemblyBuilderAccess.RunAndSave,
+            cachedShaderDirectory
+        );
 
-                var dynamicModule = dynamicAssembly.DefineDynamicModule
-                (
-                    _dynamicModuleName,
-                    cachedShaderFilename,
-                    false
-                );
+        var dynamicModule = dynamicAssembly.DefineDynamicModule
+        (
+            _dynamicModuleName,
+            cachedShaderFilename,
+            false
+        );
 
-                var typeBuilder = dynamicModule.DefineType
-                (
-                    shaderHash,
-                    TypeAttributes.Class | TypeAttributes.Sealed,
-                    typeof(DynamicShader)
-                );
+        var typeBuilder = dynamicModule.DefineType
+        (
+            shaderHash,
+            TypeAttributes.Class | TypeAttributes.Sealed,
+            typeof(DynamicShader)
+        );
 
-                var materialPropertyFields = typeBuilder.DefineDynamicMaterialPropertyFields(shader);
-                var propertyMembersField = typeBuilder.EmitGetMaterialPropertyMembers();
-                var propertyMemberNamesField = typeBuilder.EmitGetMaterialPropertyNames();
+        var materialPropertyFields = typeBuilder.DefineDynamicMaterialPropertyFields(shader);
+        var propertyMembersField = typeBuilder.EmitGetMaterialPropertyMembers();
+        var propertyMemberNamesField = typeBuilder.EmitGetMaterialPropertyNames();
 
-                typeBuilder.EmitConstructor(materialPropertyFields, propertyMembersField, propertyMemberNamesField);
+        typeBuilder.EmitConstructor(materialPropertyFields, propertyMembersField, propertyMemberNamesField);
 
-                var type = typeBuilder.CreateType();
+        var type = typeBuilder.CreateType();
 
-                // Cache the generated shader
-                Directory.CreateDirectory(cachedShaderDirectory!);
-                dynamicAssembly.Save(cachedShaderFilename);
+        // Cache the generated shader
+        Directory.CreateDirectory(cachedShaderDirectory!);
+        dynamicAssembly.Save(cachedShaderFilename);
 
-                return type;
-            }
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-            throw;
-        }
+        return type;
     }
 
     private static string GetCachedShaderPath(string shaderHash) => Path.Combine
@@ -613,10 +581,23 @@ public static class ShaderTypeGenerator
     /// </summary>
     /// <param name="shaderUrl">The shader URI.</param>
     /// <returns>The shader, or null if no shader could be loaded.</returns>
-    public static async Task<Shader?> LoadUnityShaderAsync(Uri shaderUrl)
+    private static async Task<Shader?> LoadUnityShaderAsync(Uri shaderUrl)
     {
+        if (_unityShaders.TryGetValue(shaderUrl, out var shader))
+        {
+            return shader;
+        }
+
+        await default(ToBackground);
+
+        await _shaderIntegrationLock.WaitAsync();
         try
         {
+            if (_unityShaders.TryGetValue(shaderUrl, out shader))
+            {
+                return shader;
+            }
+
             var platform = Engine.Current.Platform switch
             {
                 Platform.Windows => ShaderTargetPlatform.WindowsDX11,
@@ -625,42 +606,51 @@ public static class ShaderTypeGenerator
                 _ => ShaderTargetPlatform.LinuxOpenGL
             };
 
-            var metadata = await Engine.Current.AssetManager.RequestMetadata<ShaderMetadata>(shaderUrl, true);
             var variantDescriptor = new ShaderVariantDescriptor(0, platform);
-            var variantManager = new AssetVariantManager<FrooxEngine.Shader>(shaderUrl, Engine.Current.AssetManager, metadata);
-
-            var liveVariantCompletionSource = new TaskCompletionSource<FrooxEngine.Shader>();
-            var miniRequester = new MiniRequester();
-            miniRequester.AssetLoaded += shader =>
+            var file = await Engine.Current.AssetManager.RequestVariant
+                (shaderUrl, variantDescriptor.VariantIdentifier, variantDescriptor, false, true);
+            if (file is null)
             {
-                liveVariantCompletionSource.SetResult(shader);
-            };
+                return null;
+            }
 
-            variantManager.RequestAsset(miniRequester, variantDescriptor);
+            var bundleRequestSource = new TaskCompletionSource<AssetBundle?>();
+            var bundleRequest = AssetBundle.LoadFromFileAsync(file);
+            bundleRequest.completed += _ => bundleRequestSource.SetResult(bundleRequest.assetBundle);
 
-            return (await liveVariantCompletionSource.Task).GetUnity();
+            var bundle = await bundleRequestSource.Task;
+            if (bundle is null)
+            {
+                return null;
+            }
+
+            var shaderRequestSource = new TaskCompletionSource<Shader?>();
+            var shaderRequest = bundle.LoadAssetAsync<Shader>(bundle.GetAllAssetNames()[0]);
+            shaderRequest.completed += _ => shaderRequestSource.SetResult((Shader?)shaderRequest.asset);
+
+            shader = await shaderRequestSource.Task;
+            if (shader is null)
+            {
+                // unload the bundle for the same reason as below, but destroy any assets as well
+                bundle.Unload(true);
+                return null;
+            }
+
+            _unityShaders[shaderUrl] = shader;
+
+            // multiple load calls to the same bundle cause issues (null returns), so we unload here but preserve the
+            // loaded shader asset
+            bundle.Unload(false);
+            return shader;
         }
         catch (Exception e)
         {
             UniLog.Log($"Failed to retrieve shader for URL {shaderUrl}: {e}");
             return null;
         }
-    }
-
-    private class MiniRequester : IAssetRequester
-    {
-        public event Action<FrooxEngine.Shader>? AssetLoaded;
-
-        public void AssignAsset(Asset asset)
+        finally
         {
-        }
-
-        public void AssetLoadStateUpdated(Asset asset)
-        {
-            if (asset.LoadState is AssetLoadState.FullyLoaded)
-            {
-                this.AssetLoaded?.Invoke((FrooxEngine.Shader)asset);
-            }
+            _shaderIntegrationLock.Release();
         }
     }
 }

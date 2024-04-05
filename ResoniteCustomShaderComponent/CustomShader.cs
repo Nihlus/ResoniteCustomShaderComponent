@@ -4,14 +4,11 @@
 //  SPDX-License-Identifier: AGPL-3.0-or-later
 //
 
-using System.Collections.Concurrent;
-using System.Reflection;
 using Elements.Core;
 using FrooxEngine;
 using FrooxEngine.UIX;
 using ResoniteCustomShaderComponent.Shaders;
 using ResoniteCustomShaderComponent.TypeGeneration;
-using UnityFrooxEngineRunner;
 
 #pragma warning disable SA1401
 
@@ -29,156 +26,124 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
     public readonly Sync<Uri?> ShaderURL = new();
 
     /// <summary>
-    /// Gets the loaded shader.
-    /// </summary>
-    [HideInInspector]
-    public readonly AssetRef<Shader?> Shader = new();
-
-    /// <summary>
     /// Gets the dynamically generated shader properties.
     /// </summary>
-    [HideInInspector]
     public readonly ReadOnlyRef<DynamicShader?> ShaderProperties = new();
 
+    private readonly SemaphoreSlim _shaderUpdateLock = new(1);
+
     /// <inheritdoc />
-    public CustomShader()
+    protected override void OnStart()
     {
+        base.OnStart();
+
         this.ShaderURL.OnValueChange += OnShaderURLValueChange;
-        this.Shader.Changed += OnShaderChanged;
-        this.Shader.ListenToAssetUpdates = true;
     }
 
-    private void OnShaderChanged(IChangeable changeable)
+    private void OnShaderURLValueChange(SyncField<Uri?> shaderUrl)
     {
-        var assetRef = (AssetRef<Shader?>)changeable;
-        if (!assetRef.IsAssetAvailable)
-        {
-            return;
-        }
+        _ = Task.Run(() => UpdateDynamicShaderAsync(shaderUrl.Value));
+    }
 
-        var shaderUrl = assetRef.Target.Asset!.AssetURL;
-        if (ShaderTypeGenerator.TryGetShaderType(shaderUrl, out var existingShaderType))
+    private async Task UpdateDynamicShaderAsync(Uri? shaderUrl)
+    {
+        await _shaderUpdateLock.WaitAsync();
+
+        TaskCompletionSource<int>? worldCompletionSource = null;
+
+        try
         {
-            if (this.ShaderProperties.Target?.GetType() == existingShaderType)
+            if (shaderUrl is null)
             {
-                return;
-            }
-        }
-
-        _ = Task.Run(() => ShaderTypeGenerator.LoadUnityShaderAsync(shaderUrl))
-            .ContinueWith
-            (
-                loadShader =>
-                {
-                    if (!loadShader.Result || assetRef.Target?.Asset?.Connector is not ShaderConnector)
+                worldCompletionSource = new();
+                this.World.RunSynchronously
+                (
+                    () =>
                     {
-                        UniLog.Log("Shader was not a unity shader (or did not have a loaded shader connector)");
-
                         this.ShaderProperties.Target?.Destroy();
                         this.ShaderProperties.ForceWrite(null);
 
+                        worldCompletionSource.SetResult(1);
                         AssetRemoved();
-                        return;
                     }
+                );
 
-                    try
+                return;
+            }
+
+            // whitelist shader
+            var assetSignature = this.Cloud.Assets.DBSignature(shaderUrl);
+
+            UniLog.Log($"Whitelisting shader with signature \"{assetSignature}\"");
+            await this.Engine.LocalDB.WriteVariableAsync(assetSignature, true);
+            UniLog.Log("Shader whitelisted");
+
+            var shaderType = await ShaderTypeGenerator.GetOrGenerateShaderTypeAsync(shaderUrl);
+            if (shaderType is null)
+            {
+                worldCompletionSource = new();
+                this.World.RunSynchronously
+                (
+                    () =>
                     {
-                        var shaderType = ShaderTypeGenerator.GetOrGenerateShaderType
-                        (
-                            assetRef.Target.Asset.AssetURL,
-                            loadShader.Result!
-                        );
+                        this.ShaderProperties.Target?.Destroy();
+                        this.ShaderProperties.ForceWrite(null);
 
-                        if (this.ShaderProperties.Target?.GetType() == shaderType)
+                        worldCompletionSource.SetResult(1);
+                        AssetRemoved();
+                    }
+                );
+
+                return;
+            }
+
+            if (this.ShaderProperties.Target?.GetType() == shaderType)
+            {
+                // same type, no need to modify - just update the now-loaded shader. We don't notify of any asset
+                // changes here, letting the material itself propagate changes
+                this.ShaderProperties.Target?.SetShaderURL(shaderUrl);
+                return;
+            }
+
+            worldCompletionSource = new();
+            this.World.RunSynchronously
+            (
+                () =>
+                {
+                    UniLog.Log("Creating shader instance");
+                    var shaderProperties = (DynamicShader)this.Slot.AttachComponent
+                    (
+                        shaderType,
+                        beforeAttach: c =>
                         {
-                            // same type, no need to modify
-                            return;
+                            ((DynamicShader)c).SetShaderURL(shaderUrl);
+                            ((DynamicShader)c).DriveControlFields
+                            (
+                                this.persistent,
+                                this.updateOrder,
+                                this.EnabledField
+                            );
                         }
+                    );
 
-                        this.World.RunSynchronously(() =>
-                        {
-                            UniLog.Log("Creating shader instance");
-                            var shader = (DynamicShader)this.Slot.AttachComponent(shaderType, beforeAttach: c =>
-                            {
-                                ((DynamicShader)c).SetShader(assetRef.Target!);
-                                ((DynamicShader)c).DriveControlFields(this.persistent, this.updateOrder, this.EnabledField);
-                            });
+                    // get outta here
+                    this.ShaderProperties.Target?.Destroy();
+                    this.ShaderProperties.ForceWrite(shaderProperties);
 
-                            // get outta here
-                            this.ShaderProperties.Target?.Destroy();
-                            this.ShaderProperties.ForceWrite(shader);
-
-                            AssetUpdated();
-                            shader.Changed += _ => AssetUpdated();
-                        });
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(e);
-                        throw;
-                    }
+                    AssetUpdated();
+                    worldCompletionSource.SetResult(1);
                 }
             );
-    }
-
-    private void OnShaderURLValueChange(SyncField<Uri?> sync)
-    {
-        _ = Task.Run
-            (
-                async () =>
-                {
-                    if (sync.Value is null)
-                    {
-                        return;
-                    }
-
-                    // whitelist shader
-                    var assetSignature = this.Cloud.Assets.DBSignature(sync.Value);
-
-                    UniLog.Log($"Whitelisting shader with signature \"{assetSignature}\"");
-                    await this.Engine.LocalDB.WriteVariableAsync(assetSignature, true);
-                    UniLog.Log("Shader whitelisted");
-                }
-            )
-            .ContinueWith(_ =>
-                {
-                    this.World.RunSynchronously(InitializeShader);
-                }
-            );
-    }
-
-    private void InitializeShader()
-    {
-        if (this.ShaderURL.Value is null)
-        {
-            this.Shader.Target?.Destroy();
-            this.Shader.Target = null;
-            return;
         }
-
-        if (this.IsLocalElement)
+        finally
         {
-            this.Shader.Target = this.World.GetLocalRegisteredComponent<StaticShader>
-            (
-                this.ShaderURL.Value.OriginalString,
-                provider => provider.URL.Value = this.ShaderURL.Value,
-                true,
-                false
-            );
+            if (worldCompletionSource is not null)
+            {
+                await worldCompletionSource.Task;
+            }
 
-            return;
+            _shaderUpdateLock.Release();
         }
-
-        var componentOrCreate = this.World.GetSharedComponentOrCreate<StaticShader>
-        (
-            this.Cloud.Assets.DBSignature(this.ShaderURL.Value),
-            provider => provider.URL.Value = this.ShaderURL.Value,
-            replaceExisting: true,
-            getRoot: () => this.World.AssetsSlot.FindChildOrAdd("Shaders")
-        );
-
-        componentOrCreate.Persistent = false;
-        this.Shader.Target = componentOrCreate;
     }
 
     /// <inheritdoc />
