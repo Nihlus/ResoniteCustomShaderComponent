@@ -4,14 +4,14 @@
 //  SPDX-License-Identifier: AGPL-3.0-or-later
 //
 
-using UnityEngine.Rendering;
+using System.Reflection.Emit;
 
-namespace ResoniteCustomShaderComponent.TypeGeneration;
+namespace ResoniteCustomShaderComponent.TypeGeneration.Properties;
 
 /// <summary>
 /// Represents information about the managed representation of a material property.
 /// </summary>
-public abstract class ManagedMaterialProperty
+public class ManagedMaterialProperty
 {
     /// <summary>
     /// Gets the user-facing name of the property.
@@ -24,25 +24,30 @@ public abstract class ManagedMaterialProperty
     public Type Type { get; }
 
     /// <summary>
-    /// Gets the native material property associated with this property.
+    /// Gets the custom attributes that should be applied to the managed property.
     /// </summary>
-    public NativeMaterialProperty NativeProperty { get; }
+    public IReadOnlyList<CustomAttributeBuilder> CustomAttributes { get; }
 
     /// <summary>
-    /// Gets a value indicating whether the property should be hidden in inspectors.
+    /// Gets or sets the generated field associated with the managed property.
     /// </summary>
-    public bool IsHidden => this.NativeProperty.Flags.HasFlag(ShaderPropertyFlags.HideInInspector);
+    public FieldBuilder? Field { get; set; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ManagedMaterialProperty"/> class.
     /// </summary>
     /// <param name="name">The user-facing name of the property.</param>
     /// <param name="type">The managed type of the property.</param>
-    /// <param name="nativeProperty">The native material property associated with this property.</param>
-    protected ManagedMaterialProperty(string name, Type type, NativeMaterialProperty nativeProperty)
+    /// <param name="customAttributes">The custom attributes that should be applied to the managed property.</param>
+    public ManagedMaterialProperty
+    (
+        string name,
+        Type type,
+        IReadOnlyList<CustomAttributeBuilder>? customAttributes = null
+    )
     {
         this.Name = name;
         this.Type = type;
-        this.NativeProperty = nativeProperty;
+        this.CustomAttributes = customAttributes ?? Array.Empty<CustomAttributeBuilder>();
     }
 }

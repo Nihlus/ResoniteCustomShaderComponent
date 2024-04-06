@@ -55,12 +55,12 @@ public abstract class DynamicShader : SingleShaderMaterialProvider
     /// Gets a mapping between the material properties and their names.
     /// </summary>
     /// <returns>The mapping.</returns>
-    public abstract IReadOnlyDictionary<ISyncMember, MaterialProperty> GetMaterialPropertyNames();
+    public abstract IReadOnlyList<MaterialProperty> GetMaterialPropertyNames();
 
     /// <inheritdoc />
     protected override void GetMaterialProperties(List<MaterialProperty> properties)
     {
-        properties.AddRange(GetMaterialPropertyNames().Values);
+        properties.AddRange(GetMaterialPropertyNames());
     }
 
     /// <inheritdoc />

@@ -10,11 +10,11 @@ using Elements.Core;
 using FrooxEngine;
 using ResoniteCustomShaderComponent.Extensions;
 using ResoniteCustomShaderComponent.Shaders;
+using ResoniteCustomShaderComponent.TypeGeneration.Properties;
 using StrictEmit;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Material = FrooxEngine.Material;
-using RangeAttribute = FrooxEngine.RangeAttribute;
 using Rect = Elements.Core.Rect;
 using Shader = UnityEngine.Shader;
 
@@ -70,14 +70,35 @@ internal static class ShaderTypeGenerator
             typeof(DynamicShader)
         );
 
-        var materialPropertyFields = typeBuilder.DefineDynamicMaterialPropertyFields(shader);
+        for (var i = 0; i < shader.passCount; ++i)
+        {
+            var tag = shader.FindPassTagValue(0, new ShaderTagId("RenderType"));
+        }
+
+        var propertyGroups = MaterialPropertyMapper.GetPropertyGroups(shader);
+
+        typeBuilder.DefineDynamicMaterialPropertyFields
+        (
+            propertyGroups.SelectMany(p => p.GetManagedProperties())
+        );
+
         var propertyMembersField = typeBuilder.EmitGetMaterialPropertyMembers();
-        var propertyMemberNamesField = typeBuilder.EmitGetMaterialPropertyNames();
+        var propertyNamesField = typeBuilder.EmitGetMaterialPropertyNames();
 
-        typeBuilder.EmitConstructor(materialPropertyFields, propertyMembersField, propertyMemberNamesField);
+        typeBuilder.EmitStaticConstructor
+        (
+            propertyNamesField,
+            propertyGroups.SelectMany(p => p.GetNativeProperties())
+        );
 
-        typeBuilder.EmitInitializeSyncMemberDefaults(materialPropertyFields);
-        typeBuilder.EmitUpdateMaterial(materialPropertyFields, propertyMemberNamesField);
+        typeBuilder.EmitConstructor
+        (
+            propertyMembersField,
+            propertyGroups.SelectMany(p => p.GetManagedProperties())
+        );
+
+        typeBuilder.EmitInitializeSyncMemberDefaults(propertyGroups);
+        typeBuilder.EmitUpdateMaterial(propertyGroups);
 
         var type = typeBuilder.CreateType();
 
@@ -89,39 +110,18 @@ internal static class ShaderTypeGenerator
     }
 
     /// <summary>
-    /// Defines <see cref="Sync{T}"/> fields for each material property in the given shader.
+    /// Defines <see cref="Sync{T}"/> fields for each given material property.
     /// </summary>
     /// <param name="typeBuilder">The type builder to define the fields in.</param>
-    /// <param name="shader">The Unity shader to define fields for.</param>
-    /// <returns>The defined fields.</returns>
-    private static IReadOnlyList<(FieldBuilder Field, ManagedMaterialProperty Property)> DefineDynamicMaterialPropertyFields
+    /// <param name="managedProperties">The managed properties to define fields for..</param>
+    private static void DefineDynamicMaterialPropertyFields
     (
         this TypeBuilder typeBuilder,
-        Shader shader
+        IEnumerable<ManagedMaterialProperty> managedProperties
     )
     {
-        var nativeProperties = NativeMaterialProperty.GetProperties(shader);
-        var managedProperties = nativeProperties
-            .Select(SimpleMaterialProperty.FromNative)
-            .Where(p => p is not null)
-            .OfType<SimpleMaterialProperty>()
-            .ToArray(); // poor man's null suppression
-
-        var materialPropertyFields = new List<FieldBuilder>();
         foreach (var managedProperty in managedProperties)
         {
-            if (managedProperty.IsHidden)
-            {
-                UniLog.Log($"Shader property \"{managedProperty.Name}\" is marked as HideInInspector - skipping");
-                continue;
-            }
-
-            UniLog.Log
-            (
-                $"Adding shader property \"{managedProperty.Name}\" with shader type \"{managedProperty.NativeProperty.Type}\" and runtime type "
-                + $"\"{managedProperty.Type}\""
-            );
-
             var propertyRefType = managedProperty.Type.IsValueType ? typeof(Sync<>) : typeof(AssetRef<>);
 
             var fieldBuilder = typeBuilder.DefineField
@@ -131,36 +131,19 @@ internal static class ShaderTypeGenerator
                 FieldAttributes.Public | FieldAttributes.InitOnly
             );
 
-            if (managedProperty.NativeProperty.IsRange)
+            foreach (var customAttribute in managedProperty.CustomAttributes)
             {
-                var rangeLimits = managedProperty.NativeProperty.RangeLimits.Value;
-                var rangeConstructor = typeof(RangeAttribute).GetConstructors()[0];
-                var attributeBuilder = new CustomAttributeBuilder
-                (
-                    rangeConstructor,
-                    [
-                        rangeLimits.x, rangeLimits.y, rangeConstructor.GetParameters()[2].DefaultValue
-                    ]
-                );
-
-                UniLog.Log($"Adding range limitations {rangeLimits.x:F2} to {rangeLimits.y:F2} (display rounded)");
-                fieldBuilder.SetCustomAttribute(attributeBuilder);
+                fieldBuilder.SetCustomAttribute(customAttribute);
             }
 
-            materialPropertyFields.Add(fieldBuilder);
+            managedProperty.Field = fieldBuilder;
         }
-
-        return materialPropertyFields.Zip
-        (
-            managedProperties,
-            (field, property) => (field, (ManagedMaterialProperty)property)
-        ).ToList();
     }
 
     private static void EmitInitializeSyncMemberDefaults
     (
         this TypeBuilder typeBuilder,
-        IEnumerable<(FieldBuilder Field, ManagedMaterialProperty Property)> materialPropertyFields
+        IEnumerable<MaterialPropertyGroup> propertyGroups
     )
     {
         var initializeSyncMemberDefaults = typeBuilder.DefineMethod
@@ -179,35 +162,52 @@ internal static class ShaderTypeGenerator
         );
 
         var initializeSyncMemberDefaultsIL = initializeSyncMemberDefaults.GetILGenerator();
-        foreach (var (field, property) in materialPropertyFields)
+        foreach (var propertyGroup in propertyGroups)
         {
-            if (!property.NativeProperty.HasDefaultValue)
+            switch (propertyGroup)
             {
-                continue;
+                case SimpleMaterialPropertyGroup simpleGroup:
+                {
+                    if (!simpleGroup.Native.HasDefaultValue)
+                    {
+                        continue;
+                    }
+
+                    if (simpleGroup.Native.IsTexture)
+                    {
+                        // texture defaults are provided non-statically
+                        continue;
+                    }
+
+                    if (simpleGroup.Property.Field is null)
+                    {
+                        throw new InvalidOperationException();
+                    }
+
+                    // stack:
+                    //   <empty>
+                    initializeSyncMemberDefaultsIL.EmitLoadArgument(0);
+
+                    // stack:
+                    //   this
+                    initializeSyncMemberDefaultsIL.EmitLoadField(simpleGroup.Property.Field);
+
+                    // stack:
+                    //   ISyncMember
+                    initializeSyncMemberDefaultsIL.EmitInlineDefault(simpleGroup.Property.Type, simpleGroup.Native);
+
+                    // stack:
+                    //   ISyncMember
+                    //   T
+                    initializeSyncMemberDefaultsIL.EmitSetProperty
+                    (
+                        simpleGroup.Property.Field.FieldType,
+                        simpleGroup.Property.Type.IsValueType ? "Value" : "Target"
+                    );
+
+                    break;
+                }
             }
-
-            if (property.NativeProperty.IsTexture)
-            {
-                // texture defaults are provided non-statically
-                continue;
-            }
-
-            // stack:
-            //   <empty>
-            initializeSyncMemberDefaultsIL.EmitLoadArgument(0);
-
-            // stack:
-            //   this
-            initializeSyncMemberDefaultsIL.EmitLoadField(field);
-
-            // stack:
-            //   ISyncMember
-            initializeSyncMemberDefaultsIL.EmitInlineDefault(property);
-
-            // stack:
-            //   ISyncMember
-            //   T
-            initializeSyncMemberDefaultsIL.EmitSetProperty(field.FieldType, property.Type.IsValueType ? "Value" : "Target");
         }
 
         // stack:
@@ -215,73 +215,72 @@ internal static class ShaderTypeGenerator
         initializeSyncMemberDefaultsIL.EmitReturn();
     }
 
-    private static void EmitInlineDefault(this ILGenerator generator, ManagedMaterialProperty managedMaterialProperty)
+    private static void EmitInlineDefault
+    (
+        this ILGenerator generator,
+        Type targetType,
+        NativeMaterialProperty nativeProperty
+    )
     {
-        if (managedMaterialProperty.Type.IsScalar() && managedMaterialProperty.NativeProperty.IsScalar)
+        if (targetType.IsScalar() && nativeProperty.IsScalar)
         {
-            generator.EmitDefaultScalar(managedMaterialProperty);
+            generator.EmitDefaultScalar(targetType, nativeProperty.DefaultValue.Value);
         }
-        else if (managedMaterialProperty.NativeProperty.IsVector)
+        else if (nativeProperty.IsVector)
         {
-            generator.EmitDefaultVectorLike(managedMaterialProperty);
+            generator.EmitDefaultVectorLike(targetType, nativeProperty.DefaultVector.Value);
         }
-        else if (managedMaterialProperty.Type.IsEnum)
+        else if (targetType.IsEnum && nativeProperty.IsScalar)
         {
-            generator.EmitDefaultEnum(managedMaterialProperty);
-        }
-    }
-
-    private static void EmitDefaultEnum(this ILGenerator generator, ManagedMaterialProperty managedMaterialProperty)
-    {
-        if (managedMaterialProperty.NativeProperty.DefaultValue is null)
-        {
-            throw new ArgumentNullException(nameof(managedMaterialProperty.NativeProperty.DefaultValue));
-        }
-
-        var backingType = managedMaterialProperty.Type.GetEnumUnderlyingType();
-        if (backingType == typeof(long) || backingType == typeof(ulong))
-        {
-            generator.EmitConstantLong((long)managedMaterialProperty.NativeProperty.DefaultValue.Value);
+            generator.EmitDefaultEnum(targetType, nativeProperty.DefaultValue.Value);
         }
         else
         {
-            generator.EmitConstantInt((int)managedMaterialProperty.NativeProperty.DefaultValue.Value);
+            throw new InvalidOperationException();
         }
     }
 
-    private static void EmitDefaultVectorLike(this ILGenerator generator, ManagedMaterialProperty managedMaterialProperty)
+    private static void EmitDefaultEnum(this ILGenerator generator, Type targetType, float defaultValue)
     {
-        if (managedMaterialProperty.NativeProperty.DefaultVector is null)
+        var backingType = targetType.GetEnumUnderlyingType();
+        if (backingType == typeof(long) || backingType == typeof(ulong))
         {
-            throw new ArgumentNullException(nameof(managedMaterialProperty.NativeProperty.DefaultVector));
+            generator.EmitConstantLong((long)defaultValue);
         }
-
-        var elementCount = managedMaterialProperty.Type switch
+        else
         {
-            var type when type == typeof(float2) => 2,
-            var type when type == typeof(float3) => 3,
-            var type when type == typeof(float4) => 4,
-            var type when type == typeof(colorX) => 4,
-            var type when type == typeof(Rect) => 4,
-            _ => throw new ArgumentOutOfRangeException()
+            generator.EmitConstantInt((int)defaultValue);
+        }
+    }
+
+    private static void EmitDefaultVectorLike(this ILGenerator generator, Type targetType, Vector4 defaultValue)
+    {
+        var elementCount = targetType switch
+        {
+            _ when targetType == typeof(float2) => 2,
+            _ when targetType == typeof(float3) => 3,
+            _ when targetType == typeof(float4) => 4,
+            _ when targetType == typeof(colorX) => 4,
+            _ when targetType == typeof(Rect) => 4,
+            _ => throw new ArgumentOutOfRangeException(nameof(targetType))
         };
 
-        var elementConstructor = managedMaterialProperty.Type switch
+        var elementConstructor = targetType switch
         {
-            var type when type == typeof(float2) => typeof(float2).GetConstructor([typeof(float), typeof(float)])!,
-            var type when type == typeof(float3) => typeof(float3).GetConstructor([typeof(float), typeof(float), typeof(float)])!,
-            var type when type == typeof(float4) => typeof(float4).GetConstructor([typeof(float), typeof(float), typeof(float), typeof(float)])!,
-            var type when type == typeof(colorX) => typeof(colorX).GetConstructor([typeof(float), typeof(float), typeof(float), typeof(float), typeof(ColorProfile)])!,
-            var type when type == typeof(Rect) => typeof(Rect).GetConstructor([typeof(float), typeof(float), typeof(float), typeof(float)])!,
-            _ => throw new ArgumentOutOfRangeException()
+            _ when targetType == typeof(float2) => typeof(float2).GetConstructor([typeof(float), typeof(float)])!,
+            _ when targetType == typeof(float3) => typeof(float3).GetConstructor([typeof(float), typeof(float), typeof(float)])!,
+            _ when targetType == typeof(float4) => typeof(float4).GetConstructor([typeof(float), typeof(float), typeof(float), typeof(float)])!,
+            _ when targetType == typeof(colorX) => typeof(colorX).GetConstructor([typeof(float), typeof(float), typeof(float), typeof(float), typeof(ColorProfile)])!,
+            _ when targetType == typeof(Rect) => typeof(Rect).GetConstructor([typeof(float), typeof(float), typeof(float), typeof(float)])!,
+            _ => throw new ArgumentOutOfRangeException(nameof(targetType))
         };
 
         for (var i = 0; i < elementCount; i++)
         {
-            generator.EmitConstantFloat(managedMaterialProperty.NativeProperty.DefaultVector.Value[i]);
+            generator.EmitConstantFloat(defaultValue[i]);
         }
 
-        if (managedMaterialProperty.Type == typeof(colorX))
+        if (targetType == typeof(colorX))
         {
             generator.EmitConstantInt((int)ColorProfile.sRGB);
         }
@@ -289,16 +288,16 @@ internal static class ShaderTypeGenerator
         generator.EmitNewObject(elementConstructor);
     }
 
-    private static void EmitDefaultTexture(this ILGenerator generator, ManagedMaterialProperty managedMaterialProperty)
+    private static void EmitDefaultTexture(this ILGenerator generator, NativeMaterialProperty nativeProperty)
     {
-        if (managedMaterialProperty.NativeProperty.DefaultTextureName is null)
+        if (nativeProperty.DefaultTextureName is null)
         {
-            throw new ArgumentNullException(nameof(managedMaterialProperty.NativeProperty.DefaultTextureName));
+            throw new ArgumentNullException(nameof(nativeProperty.DefaultTextureName));
         }
 
         generator.EmitGetProperty<Engine>(nameof(Engine.Current), BindingFlags.Static | BindingFlags.Public);
         generator.EmitGetProperty<Engine>(nameof(Engine.AssetManager));
-        switch (managedMaterialProperty.NativeProperty.DefaultTextureName.ToLowerInvariant())
+        switch (nativeProperty.DefaultTextureName.ToLowerInvariant())
         {
             case "white":
             {
@@ -328,16 +327,16 @@ internal static class ShaderTypeGenerator
         }
     }
 
-    private static void EmitDefaultCubemap(this ILGenerator generator, ManagedMaterialProperty managedMaterialProperty)
+    private static void EmitDefaultCubemap(this ILGenerator generator, NativeMaterialProperty nativeProperty)
     {
-        if (managedMaterialProperty.NativeProperty.DefaultTextureName is null)
+        if (nativeProperty.DefaultTextureName is null)
         {
-            throw new ArgumentNullException(nameof(managedMaterialProperty.NativeProperty.DefaultTextureName));
+            throw new ArgumentNullException(nameof(nativeProperty.DefaultTextureName));
         }
 
         generator.EmitGetProperty<Engine>(nameof(Engine.Current), BindingFlags.Static | BindingFlags.Public);
         generator.EmitGetProperty<Engine>(nameof(Engine.AssetManager));
-        switch (managedMaterialProperty.NativeProperty.DefaultTextureName.ToLowerInvariant())
+        switch (nativeProperty.DefaultTextureName.ToLowerInvariant())
         {
             case "darkchecker":
             {
@@ -352,80 +351,75 @@ internal static class ShaderTypeGenerator
         }
     }
 
-    private static void EmitDefaultScalar(this ILGenerator generator, ManagedMaterialProperty managedMaterialProperty)
+    private static void EmitDefaultScalar(this ILGenerator generator, Type targetType, float defaultValue)
     {
-        if (managedMaterialProperty.NativeProperty.DefaultValue is null)
+        switch (targetType)
         {
-            throw new ArgumentNullException(nameof(managedMaterialProperty.NativeProperty.DefaultValue));
-        }
-
-        switch (managedMaterialProperty.Type)
-        {
-            case var _ when managedMaterialProperty.Type == typeof(sbyte):
+            case var _ when targetType == typeof(sbyte):
             {
-                generator.EmitConstantInt((int)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantInt((int)defaultValue);
                 generator.EmitConvertToByte();
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(byte):
+            case var _ when targetType == typeof(byte):
             {
-                generator.EmitConstantInt((int)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantInt((int)defaultValue);
                 generator.EmitConvertToUByte();
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(ushort):
+            case var _ when targetType == typeof(ushort):
             {
-                generator.EmitConstantInt((int)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantInt((int)defaultValue);
                 generator.EmitConvertToUShort();
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(short):
+            case var _ when targetType == typeof(short):
             {
-                generator.EmitConstantInt((int)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantInt((int)defaultValue);
                 generator.EmitConvertToShort();
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(uint):
+            case var _ when targetType == typeof(uint):
             {
-                generator.EmitConstantInt((int)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantInt((int)defaultValue);
                 generator.EmitConvertToUInt();
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(int):
+            case var _ when targetType == typeof(int):
             {
-                generator.EmitConstantInt((int)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantInt((int)defaultValue);
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(ulong):
+            case var _ when targetType == typeof(ulong):
             {
-                generator.EmitConstantLong((long)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantLong((long)defaultValue);
                 generator.EmitConvertToULong();
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(long):
+            case var _ when targetType == typeof(long):
             {
-                generator.EmitConstantLong((long)managedMaterialProperty.NativeProperty.DefaultValue);
+                generator.EmitConstantLong((long)defaultValue);
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(float):
+            case var _ when targetType == typeof(float):
             {
-                generator.EmitConstantFloat(managedMaterialProperty.NativeProperty.DefaultValue.Value);
+                generator.EmitConstantFloat(defaultValue);
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(double):
+            case var _ when targetType == typeof(double):
             {
-                generator.EmitConstantDouble(managedMaterialProperty.NativeProperty.DefaultValue.Value);
+                generator.EmitConstantDouble(defaultValue);
                 break;
             }
-            case var _ when managedMaterialProperty.Type == typeof(decimal):
+            case var _ when targetType == typeof(decimal):
             {
-                generator.EmitConstantFloat(managedMaterialProperty.NativeProperty.DefaultValue.Value);
+                generator.EmitConstantFloat(defaultValue);
                 generator.EmitCallDirect<decimal>("op_Implicit", typeof(float));
                 break;
             }
             default:
             {
-                throw new ArgumentOutOfRangeException(nameof(managedMaterialProperty));
+                throw new ArgumentOutOfRangeException(nameof(targetType));
             }
         }
     }
@@ -433,8 +427,7 @@ internal static class ShaderTypeGenerator
     private static void EmitUpdateMaterial
     (
         this TypeBuilder typeBuilder,
-        IEnumerable<(FieldBuilder Field, ManagedMaterialProperty Property)> materialPropertyFields,
-        FieldInfo propertyMemberNamesField
+        IEnumerable<MaterialPropertyGroup> propertyGroups
     )
     {
         var updateMaterial = typeBuilder.DefineMethod
@@ -452,25 +445,39 @@ internal static class ShaderTypeGenerator
             typeof(MaterialProvider).GetMethod("UpdateMaterial", BindingFlags.Instance | BindingFlags.NonPublic)!
         );
 
-        var indexerProperty = typeof(IReadOnlyDictionary<ISyncMember, MaterialProperty>)
-            .GetProperties()
-            .Single(p => p.GetIndexParameters().Length > 0);
-
         var implicitConversion = typeof(MaterialProperty)
             .GetMethods()
             .Single(m => m.Name is "op_Implicit" && m.ReturnType == typeof(int));
 
         var updateMaterialIL = updateMaterial.GetILGenerator();
-        foreach (var (field, property) in materialPropertyFields)
+        foreach (var propertyGroup in propertyGroups)
         {
-            // material.UpdateXXX(property, field);
-            if (property.NativeProperty.IsTexture)
+            switch (propertyGroup)
             {
-                EmitTextureUpdateCall(propertyMemberNamesField, updateMaterialIL, field, indexerProperty, implicitConversion, property);
-            }
-            else
-            {
-                EmitSimpleUpdateCall(propertyMemberNamesField, updateMaterialIL, field, indexerProperty, implicitConversion, property);
+                case SimpleMaterialPropertyGroup simpleGroup:
+                {
+                    // material.UpdateXXX(property, field);
+                    if (simpleGroup.Native.IsTexture)
+                    {
+                        EmitTextureUpdateCall
+                        (
+                            updateMaterialIL,
+                            implicitConversion,
+                            simpleGroup
+                        );
+                    }
+                    else
+                    {
+                        EmitSimpleUpdateCall
+                        (
+                            updateMaterialIL,
+                            implicitConversion,
+                            simpleGroup
+                        );
+                    }
+
+                    break;
+                }
             }
         }
 
@@ -481,43 +488,23 @@ internal static class ShaderTypeGenerator
 
     private static void EmitTextureUpdateCall
     (
-        FieldInfo propertyMemberNamesField,
         ILGenerator updateMaterialIL,
-        FieldInfo field,
-        PropertyInfo indexerProperty,
         MethodInfo implicitConversion,
-        ManagedMaterialProperty property
+        SimpleMaterialPropertyGroup simpleGroup
     )
     {
+        if (simpleGroup.Property.Field is null || simpleGroup.Native.PropertyNameField is null)
+        {
+            throw new InvalidOperationException();
+        }
+
         // stack:
         //  <empty>
         updateMaterialIL.EmitLoadArgument(1);
 
         // stack:
         //  Material
-        updateMaterialIL.EmitLoadArgument(0);
-
-        // stack:
-        //  Material
-        //  this
-        updateMaterialIL.EmitLoadField(propertyMemberNamesField);
-
-        // stack:
-        //  Material
-        //  IReadOnlyDictionary
-        updateMaterialIL.EmitLoadArgument(0);
-
-        // stack:
-        //  Material
-        //  IReadOnlyDictionary
-        //  this
-        updateMaterialIL.EmitLoadField(field);
-
-        // stack:
-        //  Material
-        //  IReadOnlyDictionary
-        //  ISyncMember
-        updateMaterialIL.EmitCallVirtual(indexerProperty.GetMethod);
+        updateMaterialIL.EmitLoadStaticField(simpleGroup.Native.PropertyNameField);
 
         // stack:
         //  Material
@@ -533,19 +520,19 @@ internal static class ShaderTypeGenerator
         //  Material
         //  int
         //  this
-        updateMaterialIL.EmitLoadField(field);
+        updateMaterialIL.EmitLoadField(simpleGroup.Property.Field);
 
         // stack:
         //  Material
         //  int
         //  ISyncMember
-        if (property.NativeProperty.TextureDimension is TextureDimension.Cube)
+        if (simpleGroup.Native.TextureDimension is TextureDimension.Cube)
         {
-            updateMaterialIL.EmitDefaultCubemap(property);
+            updateMaterialIL.EmitDefaultCubemap(simpleGroup.Native);
         }
         else
         {
-            updateMaterialIL.EmitDefaultTexture(property);
+            updateMaterialIL.EmitDefaultTexture(simpleGroup.Native);
         }
 
         // stack:
@@ -553,48 +540,37 @@ internal static class ShaderTypeGenerator
         //  int
         //  ISyncMember
         //  ITexture2D? | Cubemap?
-        updateMaterialIL.EmitCallVirtual(MaterialPropertyMapper.GetMaterialPropertyUpdateMethod(property));
+        updateMaterialIL.EmitCallVirtual(MaterialPropertyMapper.GetMaterialPropertyUpdateMethod(simpleGroup));
     }
 
     private static void EmitSimpleUpdateCall
     (
-        FieldInfo propertyMemberNamesField,
         ILGenerator updateMaterialIL,
-        FieldInfo field,
-        PropertyInfo indexerProperty,
         MethodInfo implicitConversion,
-        ManagedMaterialProperty property
+        SimpleMaterialPropertyGroup simpleGroup
     )
     {
+        if (simpleGroup.Property.Field is null || simpleGroup.Native.PropertyNameField is null)
+        {
+            throw new InvalidOperationException();
+        }
+
+        // stack:
+        //  <empty>
+        updateMaterialIL.EmitLoadArgument(1);
+
         // stack:
         //  <empty>
         updateMaterialIL.EmitLoadArgument(1);
 
         // stack:
         //  Material
-        updateMaterialIL.EmitLoadArgument(0);
+        updateMaterialIL.EmitLoadStaticField(simpleGroup.Native.PropertyNameField);
 
         // stack:
         //  Material
-        //  this
-        updateMaterialIL.EmitLoadField(propertyMemberNamesField);
-
-        // stack:
-        //  Material
-        //  IReadOnlyDictionary
-        updateMaterialIL.EmitLoadArgument(0);
-
-        // stack:
-        //  Material
-        //  IReadOnlyDictionary
-        //  this
-        updateMaterialIL.EmitLoadField(field);
-
-        // stack:
-        //  Material
-        //  IReadOnlyDictionary
-        //  ISyncMember
-        updateMaterialIL.EmitCallVirtual(indexerProperty.GetMethod);
+        //  MaterialProperty
+        updateMaterialIL.EmitCallDirect(implicitConversion);
 
         // stack:
         //  Material
@@ -610,13 +586,86 @@ internal static class ShaderTypeGenerator
         //  Material
         //  int
         //  this
-        updateMaterialIL.EmitLoadField(field);
+        updateMaterialIL.EmitLoadField(simpleGroup.Property.Field);
 
         // stack:
         //  Material
         //  int
         //  ISyncMember
-        updateMaterialIL.EmitCallVirtual(MaterialPropertyMapper.GetMaterialPropertyUpdateMethod(property));
+        updateMaterialIL.EmitCallVirtual(MaterialPropertyMapper.GetMaterialPropertyUpdateMethod(simpleGroup));
+    }
+
+    private static void EmitStaticConstructor
+    (
+        this TypeBuilder typeBuilder,
+        FieldInfo propertyNamesField,
+        IEnumerable<NativeMaterialProperty> nativeProperties
+    )
+    {
+        var constructorBuilder = typeBuilder.DefineConstructor
+        (
+            MethodAttributes.Public | MethodAttributes.Static,
+            CallingConventions.Standard,
+            Type.EmptyTypes
+        );
+
+        var constructorIL = constructorBuilder.GetILGenerator();
+        var propertyNamesLocal = constructorIL.DeclareLocal(typeof(List<MaterialProperty>));
+
+        constructorIL.EmitNewObject<List<MaterialProperty>>();
+        constructorIL.EmitSetLocalVariable(propertyNamesLocal);
+
+        foreach (var nativeProperty in nativeProperties)
+        {
+            var fieldBuilder = typeBuilder.DefineField
+            (
+                nativeProperty.Name,
+                typeof(MaterialProperty),
+                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly
+            );
+
+            var nameLocal = constructorIL.DeclareLocal(typeof(MaterialProperty));
+
+            // stack:
+            //   <empty>
+            constructorIL.EmitConstantString(nativeProperty.Name);
+
+            // stack:
+            //   string
+            constructorIL.EmitNewObject<MaterialProperty>(typeof(string));
+
+            // stack:
+            //   MaterialProperty
+            constructorIL.EmitSetLocalVariable(nameLocal);
+
+            // stack:
+            //   <empty>
+            constructorIL.EmitLoadLocalVariable(nameLocal);
+
+            // stack:
+            //   MaterialProperty
+            constructorIL.EmitSetStaticField(fieldBuilder);
+
+            // stack:
+            //   <empty>
+            constructorIL.EmitLoadLocalVariable(propertyNamesLocal);
+
+            // stack:
+            //   List<MaterialProperty>
+            constructorIL.EmitLoadLocalVariable(nameLocal);
+
+            // stack:
+            //   List<MaterialProperty>
+            //   MaterialProperty
+            constructorIL.EmitCallVirtual<List<MaterialProperty>>(nameof(List<MaterialProperty>.Add));
+
+            nativeProperty.PropertyNameField = fieldBuilder;
+        }
+
+        constructorIL.EmitLoadLocalVariable(propertyNamesLocal);
+        constructorIL.EmitSetStaticField(propertyNamesField);
+
+        constructorIL.EmitReturn();
     }
 
     /// <summary>
@@ -624,18 +673,13 @@ internal static class ShaderTypeGenerator
     /// property members field and their material property names in the property names field.
     /// </summary>
     /// <param name="typeBuilder">The type to define the constructor in.</param>
-    /// <param name="materialPropertyFields">The fields defined for the shader's material properties.</param>
     /// <param name="propertyMembersField">The field that holds a list of each material property field.</param>
-    /// <param name="propertyNamesField">
-    /// The field that holds a mapping of each material property's <see cref="Sync{T}"/> value to its material property
-    /// name.
-    /// </param>
+    /// <param name="managedProperties">The fields defined for the shader's material properties.</param>
     private static void EmitConstructor
     (
         this TypeBuilder typeBuilder,
-        IEnumerable<(FieldBuilder Field, ManagedMaterialProperty Property)> materialPropertyFields,
         FieldInfo propertyMembersField,
-        FieldInfo propertyNamesField
+        IEnumerable<ManagedMaterialProperty> managedProperties
     )
     {
         var constructorBuilder = typeBuilder.DefineConstructor
@@ -647,7 +691,6 @@ internal static class ShaderTypeGenerator
 
         var constructorIL = constructorBuilder.GetILGenerator();
         var syncMemberListLocal = constructorIL.DeclareLocal(typeof(List<ISyncMember>));
-        var syncMemberNameMapLocal = constructorIL.DeclareLocal(typeof(Dictionary<ISyncMember, MaterialProperty>));
 
         // stack: <empty>
         constructorIL.EmitLoadArgument(0);
@@ -664,19 +707,17 @@ internal static class ShaderTypeGenerator
         //   List<ISyncMember>
         constructorIL.EmitSetLocalVariable(syncMemberListLocal);
 
-        // stack: <empty>
-        constructorIL.EmitNewObject<Dictionary<ISyncMember, MaterialProperty>>();
-
-        // stack:
-        //   Dictionary<ISyncMember, MaterialProperty>
-        constructorIL.EmitSetLocalVariable(syncMemberNameMapLocal);
-
-        foreach (var (field, property) in materialPropertyFields)
+        foreach (var property in managedProperties)
         {
-            var syncFieldConstructor = field.FieldType.GetConstructor([])!;
+            if (property.Field is null)
+            {
+                throw new InvalidOperationException();
+            }
+
+            var syncFieldConstructor = property.Field.FieldType.GetConstructor([])!;
 
             // create syncField, store it in a local
-            var local = constructorIL.DeclareLocal(field.FieldType);
+            var local = constructorIL.DeclareLocal(property.Field.FieldType);
             constructorIL.EmitNewObject(syncFieldConstructor);
             constructorIL.EmitSetLocalVariable(local);
 
@@ -693,30 +734,6 @@ internal static class ShaderTypeGenerator
             constructorIL.EmitCallVirtual<List<ISyncMember>>(nameof(List<ISyncMember>.Add));
 
             // stack: <empty>
-            constructorIL.EmitLoadLocalVariable(syncMemberNameMapLocal);
-
-            // stack:
-            //   Dictionary<ISyncMember, MaterialProperty>
-            constructorIL.EmitLoadLocalVariable(local);
-
-            // stack:
-            //   Dictionary<ISyncMember, MaterialProperty>
-            //   ISyncMember
-            constructorIL.EmitConstantString(property.NativeProperty.Name);
-
-            // stack:
-            //   Dictionary<ISyncMember, MaterialProperty>
-            //   ISyncMember
-            //   string
-            constructorIL.EmitNewObject<MaterialProperty>(typeof(string));
-
-            // stack:
-            //   Dictionary<ISyncMember, MaterialProperty>
-            //   ISyncMember
-            //   MaterialProperty
-            constructorIL.EmitCallVirtual<Dictionary<ISyncMember, MaterialProperty>>(nameof(Dictionary<ISyncMember, MaterialProperty>.Add));
-
-            // stack: <empty>
             constructorIL.EmitLoadArgument(0);
 
             // stack:
@@ -726,7 +743,7 @@ internal static class ShaderTypeGenerator
             // stack:
             //   this
             //   ISyncMember
-            constructorIL.EmitSetField(field);
+            constructorIL.EmitSetField(property.Field);
         }
 
         // stack: <empty>
@@ -740,18 +757,6 @@ internal static class ShaderTypeGenerator
         //   this
         //   List<ISyncMember>
         constructorIL.EmitSetField(propertyMembersField);
-
-        // stack: <empty>
-        constructorIL.EmitLoadArgument(0);
-
-        // stack:
-        //   this
-        constructorIL.EmitLoadLocalVariable(syncMemberNameMapLocal);
-
-        // stack:
-        //   this
-        //   Dictionary<ISyncMember, MaterialProperty>
-        constructorIL.EmitSetField(propertyNamesField);
 
         // stack: <empty>
         constructorIL.EmitReturn();
@@ -804,8 +809,8 @@ internal static class ShaderTypeGenerator
         var propertyNamesField = typeBuilder.DefineField
         (
             "_materialPropertyNames",
-            typeof(IReadOnlyDictionary<ISyncMember, MaterialProperty>),
-            FieldAttributes.Private
+            typeof(IReadOnlyList<MaterialProperty>),
+            FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly
         );
 
         var getMaterialPropertyNames = typeBuilder.DefineMethod
@@ -813,7 +818,7 @@ internal static class ShaderTypeGenerator
             nameof(DynamicShader.GetMaterialPropertyNames),
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final,
             CallingConventions.Standard,
-            typeof(IReadOnlyDictionary<ISyncMember, MaterialProperty>),
+            typeof(IReadOnlyList<MaterialProperty>),
             []
         );
 

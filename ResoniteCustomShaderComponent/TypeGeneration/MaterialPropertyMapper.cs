@@ -9,6 +9,7 @@ using System.Reflection;
 using Elements.Core;
 using FrooxEngine;
 using ResoniteCustomShaderComponent.Extensions;
+using ResoniteCustomShaderComponent.TypeGeneration.Properties;
 using UnityEngine.Rendering;
 using BlendMode = FrooxEngine.BlendMode;
 
@@ -36,7 +37,6 @@ public static class MaterialPropertyMapper
         { "Rect", typeof(Rect) }, // TODO: non-functional (handle UpdateRect)
         { "RectClip", typeof(bool) }, // TODO: non-functional (handle bool)
         { "RenderQueue", typeof(int) },
-        { "Sidedness", typeof(Sidedness) },
         { "StencilComparison", typeof(StencilComparison) },
         { "StencilID", typeof(byte) },
         { "StencilOperation", typeof(StencilOperation) },
@@ -59,7 +59,7 @@ public static class MaterialPropertyMapper
         { "_BumpScale", "NormalScale" },
         { "_Color", "AlbedoColor" },
         { "_ColorMask", "ColorMask" },
-        { "_Cull", "Sidedness" },
+        { "_Cull", "Sidedness" }, // TODO: needs special handling, belongs to BlendMode
         { "_Cutoff", "AlphaCutoff" },
         { "_DetailAlbedoMap", "DetailAlbedoTexture" },
         { "_DetailNormalMap", "DetailNormalTexture" },
@@ -81,7 +81,7 @@ public static class MaterialPropertyMapper
         { "_Tex", "Texture" },
         { "_Tint", "Tint" },
         { "_ZTest", "ZTest" },
-        { "_ZWrite", "ZWrite" },
+        { "_ZWrite", "ZWrite" }, // TODO: needs special handling, belongs to BlendMode
     };
 
     /// <summary>
@@ -142,32 +142,47 @@ public static class MaterialPropertyMapper
     private static readonly ConcurrentDictionary<Type, MethodInfo> _materialPropertyUpdateEnumMethods = new();
 
     /// <summary>
+    /// Gets the property groups in the given shader.
+    /// </summary>
+    /// <param name="shader">The shader.</param>
+    /// <returns>The property groups.</returns>
+    public static IReadOnlyList<MaterialPropertyGroup> GetPropertyGroups(UnityEngine.Shader shader)
+    {
+        var nativeProperties = NativeMaterialProperty.GetProperties(shader);
+        return nativeProperties
+            .Select(SimpleMaterialPropertyGroup.FromNative)
+            .Where(p => p is not null)
+            .OfType<SimpleMaterialPropertyGroup>() // poor man's null suppression
+            .ToArray();
+    }
+
+    /// <summary>
     /// Gets the update method used for the given material property.
     /// </summary>
-    /// <param name="managedProperty">The managed property.</param>
+    /// <param name="simpleProperty">The managed property.</param>
     /// <returns>The method to call.</returns>
     /// <exception cref="MissingMethodException">Thrown if no matching method can be found.</exception>
-    public static MethodInfo GetMaterialPropertyUpdateMethod(ManagedMaterialProperty managedProperty)
+    public static MethodInfo GetMaterialPropertyUpdateMethod(SimpleMaterialPropertyGroup simpleProperty)
     {
-        if (_materialPropertyUpdateMethods.TryGetValue(managedProperty.Type, out var updateMethod))
+        if (_materialPropertyUpdateMethods.TryGetValue(simpleProperty.Property.Type, out var updateMethod))
         {
             return updateMethod;
         }
 
-        if (managedProperty.NativeProperty.IsTexture)
+        if (simpleProperty.Native.IsTexture)
         {
-            return managedProperty.NativeProperty.Flags.HasFlag(ShaderPropertyFlags.Normal)
+            return simpleProperty.Native.Flags.HasFlag(ShaderPropertyFlags.Normal)
                 ? _materialPropertyUpdateNormalMapMethod
-                : managedProperty.NativeProperty.TextureDimension is TextureDimension.Cube
+                : simpleProperty.Native.TextureDimension is TextureDimension.Cube
                     ? _materialPropertyUpdateCubemapMethod
                     : _materialPropertyUpdateTextureMethod;
         }
 
-        if (managedProperty.Type.IsEnum)
+        if (simpleProperty.Property.Type.IsEnum)
         {
             return _materialPropertyUpdateEnumMethods.GetOrAdd
             (
-                managedProperty.Type,
+                simpleProperty.Property.Type,
                 t => _genericMaterialPropertyUpdateEnumMethod.MakeGenericMethod(t)
             );
         }

@@ -39,10 +39,4 @@
       <PackageReference Include="StrictEmit" Version="2.9.0" />
     </ItemGroup>
 
-    <ItemGroup>
-      <Compile Update="TypeGeneration\SimpleMaterialProperty.cs">
-        <DependentUpon>ManagedMaterialProperty.cs</DependentUpon>
-      </Compile>
-    </ItemGroup>
-
 </Project>

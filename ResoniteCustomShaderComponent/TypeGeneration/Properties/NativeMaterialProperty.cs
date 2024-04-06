@@ -6,6 +6,7 @@
 
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -62,6 +63,11 @@ public class NativeMaterialProperty
     /// Gets the default name of the texture to use.
     /// </summary>
     public string? DefaultTextureName { get; }
+
+    /// <summary>
+    /// Gets or sets the field in which the native property's <see cref="FrooxEngine.MaterialProperty"/> is contained.
+    /// </summary>
+    public FieldInfo? PropertyNameField { get; set; }
 
     /// <summary>
     /// Gets a value indicating whether the property is a texture.
