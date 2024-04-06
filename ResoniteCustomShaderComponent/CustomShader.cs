@@ -109,38 +109,51 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
                 () =>
                 {
                     UniLog.Log("Creating shader instance");
-                    var shaderProperties = (DynamicShader)this.Slot.AttachComponent
-                    (
-                        shaderType,
-                        beforeAttach: c =>
-                        {
-                            ((DynamicShader)c).SetShaderURL(shaderUrl);
-                            ((DynamicShader)c).DriveControlFields
-                            (
-                                this.persistent,
-                                this.updateOrder,
-                                this.EnabledField
-                            );
-                        }
-                    );
+                    try
+                    {
+                        var shaderProperties = (DynamicShader)this.Slot.AttachComponent
+                        (
+                            shaderType,
+                            beforeAttach: c =>
+                            {
+                                ((DynamicShader)c).SetShaderURL(shaderUrl);
+                                ((DynamicShader)c).DriveControlFields
+                                (
+                                    this.persistent,
+                                    this.updateOrder,
+                                    this.EnabledField
+                                );
+                            }
+                        );
 
-                    // get outta here
-                    this.ShaderProperties.Target?.Destroy();
-                    this.ShaderProperties.ForceWrite(shaderProperties);
+                        // get outta here
+                        this.ShaderProperties.Target?.Destroy();
+                        this.ShaderProperties.ForceWrite(shaderProperties);
 
-                    AssetUpdated();
-                    worldCompletionSource.SetResult(1);
+                        AssetUpdated();
+                        worldCompletionSource.SetResult(1);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                        throw;
+                    }
                 }
             );
         }
         finally
         {
-            if (worldCompletionSource is not null)
+            try
             {
-                await worldCompletionSource.Task;
+                if (worldCompletionSource is not null)
+                {
+                    await worldCompletionSource.Task;
+                }
             }
-
-            _shaderUpdateLock.Release();
+            finally
+            {
+                _shaderUpdateLock.Release();
+            }
         }
     }
 

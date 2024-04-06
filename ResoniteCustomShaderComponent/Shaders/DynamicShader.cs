@@ -69,59 +69,6 @@ public abstract class DynamicShader : SingleShaderMaterialProvider
         //throw new NotImplementedException();
     }
 
-    /// <inheritdoc />
-    protected override void UpdateMaterial(Material material)
-    {
-        material.UpdateInstancing(true);
-
-        var materialProperties = GetMaterialPropertyMembers();
-        var materialPropertyNames = GetMaterialPropertyNames();
-
-        foreach (var materialProperty in materialProperties)
-        {
-            var materialPropertyName = materialPropertyNames[materialProperty];
-
-            switch (materialProperty)
-            {
-                case Sync<float> floatProperty:
-                {
-                    material.UpdateFloat(materialPropertyName, floatProperty);
-                    break;
-                }
-                case Sync<colorX> colorProperty:
-                {
-                    material.UpdateColor(materialPropertyName, colorProperty);
-                    break;
-                }
-                case Sync<float4> vectorProperty:
-                {
-                    material.UpdateFloat4(materialPropertyName, vectorProperty);
-                    break;
-                }
-                case AssetRef<ITexture2D> texture2dProperty:
-                {
-                    var index = texture2dProperty.Worker.SyncMembers.TakeWhile(x => x != texture2dProperty).Count();
-                    var fieldInfo = texture2dProperty.Worker.GetSyncMemberFieldInfo(index);
-                    if (fieldInfo.GetCustomAttribute<NormalMapAttribute>() is not null)
-                    {
-                        material.UpdateNormalMap(materialPropertyName, texture2dProperty);
-                    }
-                    else
-                    {
-                        material.UpdateTexture(materialPropertyName, texture2dProperty);
-                    }
-
-                    break;
-                }
-                case AssetRef<Cubemap> cubemapProperty:
-                {
-                    material.UpdateCubemap(materialPropertyName, cubemapProperty);
-                    break;
-                }
-            }
-        }
-    }
-
     /// <summary>
     /// Builds UI in an inspector, nested underneath an outer <see cref="CustomShader"/> component. This filters out a
     /// few internal properties that shouldn't be visible.

@@ -26,7 +26,7 @@ public class NativeMaterialProperty
     /// <summary>
     /// Gets the description of the material property.
     /// </summary>
-    public string Description { get; }
+    public string? Description { get; }
 
     /// <summary>
     /// Gets the type of the material property.
@@ -86,6 +86,21 @@ public class NativeMaterialProperty
     /// </summary>
     [MemberNotNullWhen(true, nameof(DefaultValue))]
     public bool IsScalar => this.Type is ShaderPropertyType.Float or ShaderPropertyType.Range;
+
+    /// <summary>
+    /// Gets a value indicating whether the property has a default value.
+    /// </summary>
+    public bool HasDefaultValue => this.DefaultValue is not null
+                                   || this.DefaultVector is not null
+                                   || (this.DefaultTextureName is not null && this.HasSupportedDefaultTextureName);
+
+    /// <summary>
+    /// Gets a value indicating whether the property has a supported default texture name.
+    /// </summary>
+    public bool HasSupportedDefaultTextureName =>
+        this.TextureDimension is UnityEngine.Rendering.TextureDimension.Cube
+            ? this.DefaultTextureName?.ToLowerInvariant() is "darkchecker"
+            : this.DefaultTextureName?.ToLowerInvariant() is "white" or "black" or "clear" or "darkchecker";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NativeMaterialProperty"/> class from the given shader
