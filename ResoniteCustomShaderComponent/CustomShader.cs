@@ -28,6 +28,7 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
     /// <summary>
     /// Gets the dynamically generated shader properties.
     /// </summary>
+    [HideInInspector]
     public readonly ReadOnlyRef<DynamicShader?> ShaderProperties = new();
 
     private readonly SemaphoreSlim _shaderUpdateLock = new(1);
