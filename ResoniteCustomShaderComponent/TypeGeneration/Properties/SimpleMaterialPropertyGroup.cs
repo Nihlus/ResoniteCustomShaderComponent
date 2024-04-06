@@ -6,6 +6,8 @@
 
 using System.Reflection.Emit;
 using FrooxEngine;
+using ResoniteCustomShaderComponent.Extensions;
+using StrictEmit;
 using UnityEngine.Rendering;
 
 namespace ResoniteCustomShaderComponent.TypeGeneration.Properties;
@@ -93,5 +95,67 @@ public sealed class SimpleMaterialPropertyGroup : MaterialPropertyGroup
     public override IEnumerable<NativeMaterialProperty> GetNativeProperties()
     {
         yield return this.Native;
+    }
+
+    /// <inheritdoc />
+    public override void EmitInitializeSyncMemberDefaults(ILGenerator il)
+    {
+        if (!this.Native.HasDefaultValue)
+        {
+            return;
+        }
+
+        if (this.Native.IsTexture)
+        {
+            // texture defaults are provided non-statically
+            return;
+        }
+
+        if (this.Property.Field is null)
+        {
+            throw new InvalidOperationException();
+        }
+
+        // stack:
+        //   <empty>
+        il.EmitLoadArgument(0);
+
+        // stack:
+        //   this
+        il.EmitLoadField(this.Property.Field);
+
+        // stack:
+        //   ISyncMember
+        il.EmitInlineDefault(this.Property.Type, this.Native);
+
+        // stack:
+        //   ISyncMember
+        //   T
+        il.EmitSetProperty
+        (
+            this.Property.Field.FieldType,
+            this.Property.Type.IsValueType ? "Value" : "Target"
+        );
+    }
+
+    /// <inheritdoc />
+    public override void EmitUpdateMaterial(ILGenerator il)
+    {
+        if (this.Native.IsTexture)
+        {
+            il.EmitTextureUpdateCall
+            (
+                this.Property,
+                this.Native
+            );
+        }
+        else
+        {
+            il.EmitSimpleUpdateCall
+            (
+                this.Property,
+                this.Native
+            );
+        }
     }
 }

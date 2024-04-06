@@ -21,18 +21,20 @@ namespace ResoniteCustomShaderComponent.TypeGeneration;
 public static class MaterialPropertyMapper
 {
     /// <summary>
+    /// Gets the implicit conversion method for <see cref="MaterialProperty"/> instances.
+    /// </summary>
+    public static MethodInfo MaterialPropertyConversion { get; } = typeof(MaterialProperty)
+        .GetMethods()
+        .Single(m => m.Name is "op_Implicit" && m.ReturnType == typeof(int));
+
+    /// <summary>
     /// Holds a mapping between outward-facing material properties and the runtime types they should have.
     /// </summary>
     private static readonly IReadOnlyDictionary<string, Type> _managedTypes = new Dictionary<string, Type>
     {
         { "AlphaClip", typeof(float) },
-        { "BlendMode", typeof(BlendMode) },
         { "ColorMask", typeof(ColorMask) },
-        { "DetailTextureOffset", typeof(float2) },
-        { "DetailTextureScale", typeof(float2) },
         { "MaskMode", typeof(MaskTextureMode) },
-        { "MaskOffset", typeof(float2) },
-        { "MaskScale", typeof(float2) },
         { "Overlay", typeof(bool) }, // TODO: non-functional (handle bool)
         { "Rect", typeof(Rect) }, // TODO: non-functional (handle UpdateRect)
         { "RectClip", typeof(bool) }, // TODO: non-functional (handle bool)
@@ -43,10 +45,7 @@ public static class MaterialPropertyMapper
         { "StencilReadMask", typeof(byte) },
         { "StencilWriteMask", typeof(byte) },
         { "TextureMode", typeof(UnlitTextureMode) },
-        { "TextureOffset", typeof(float2) },
-        { "TextureScale", typeof(float2) },
         { "ZTest", typeof(ZTest) },
-        { "ZWrite", typeof(ZWrite) },
     };
 
     /// <summary>
@@ -59,7 +58,6 @@ public static class MaterialPropertyMapper
         { "_BumpScale", "NormalScale" },
         { "_Color", "AlbedoColor" },
         { "_ColorMask", "ColorMask" },
-        { "_Cull", "Sidedness" }, // TODO: needs special handling, belongs to BlendMode
         { "_Cutoff", "AlphaCutoff" },
         { "_DetailAlbedoMap", "DetailAlbedoTexture" },
         { "_DetailNormalMap", "DetailNormalTexture" },
@@ -80,31 +78,32 @@ public static class MaterialPropertyMapper
         { "_StencilWriteMask", "StencilWriteMask" },
         { "_Tex", "Texture" },
         { "_Tint", "Tint" },
-        { "_ZTest", "ZTest" },
-        { "_ZWrite", "ZWrite" }, // TODO: needs special handling, belongs to BlendMode
+        { "_ZTest", "ZTest" }
     };
 
     /// <summary>
     /// Gets a mapping between the names of native scale-translation material properties and the names of the
     /// associated managed properties they take their complete value from.
     /// </summary>
-    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _scaleTranslationNames = new Dictionary<string, IReadOnlyList<string>>
+    private static readonly IReadOnlyDictionary<string, (string ScaleName, string TranslationName)> _scaleTranslationNames = new Dictionary<string, (string, string)>
     {
-        { "_MainTex_ST", new[] { "TextureScale", "TextureOffset" } },
-        { "_DetailAlbedoMap_ST", new[] { "DetailTextureScale", "DetailTextureOffset" } },
-        { "_MaskTex_ST", new[] { "MaskScale", "MaskOffset" } },
-        { "_RightEye_ST", new[] { "RightEyeTextureScale", "RightEyeTextureOffset" } }
+        { "_MainTex_ST", ("TextureScale", "TextureOffset") },
+        { "_DetailAlbedoMap_ST", ("DetailTextureScale", "DetailTextureOffset") },
+        { "_MaskTex_ST", ("MaskScale", "MaskOffset") },
+        { "_RightEye_ST", ("RightEyeTextureScale", "RightEyeTextureOffset") }
     };
 
     /// <summary>
-    /// Gets a mapping between real shader properties and the name of the virtual property they are a part of.
+    /// Gets a mapping between blend mode shader properties and the name of the virtual property they are a part of.
     /// </summary>
-    private static readonly IReadOnlyDictionary<string, string> _combinedNames = new Dictionary<string, string>
+    private static readonly IReadOnlyDictionary<string, string> _blendModeNames = new Dictionary<string, string>
     {
         { "_SrcBlend", "BlendMode" },
         { "_DstBlend", "BlendMode" },
         { "_SrcBlendAdd", "BlendMode" },
         { "_DstBlendAdd", "BlendMode" },
+        { "_ZWrite", "ZWrite" },
+        { "_Cull", "Sidedness" },
     };
 
     /// <summary>
@@ -132,8 +131,6 @@ public static class MaterialPropertyMapper
         { typeof(colorX), typeof(Material).GetMethod(nameof(Material.UpdateColor), [typeof(int), typeof(Sync<colorX>)]) },
     };
 
-    private static readonly MethodInfo _materialPropertyUpdateSTMethod = typeof(Material).GetMethod(nameof(Material.UpdateST))!;
-
     private static readonly MethodInfo _materialPropertyUpdateCubemapMethod = typeof(Material).GetMethod(nameof(Material.UpdateCubemap))!;
     private static readonly MethodInfo _materialPropertyUpdateTextureMethod = typeof(MaterialExtensions).GetMethod(nameof(MaterialExtensions.UpdateTexture))!;
     private static readonly MethodInfo _materialPropertyUpdateNormalMapMethod = typeof(MaterialExtensions).GetMethod(nameof(Material.UpdateNormalMap))!;
@@ -148,41 +145,74 @@ public static class MaterialPropertyMapper
     /// <returns>The property groups.</returns>
     public static IReadOnlyList<MaterialPropertyGroup> GetPropertyGroups(UnityEngine.Shader shader)
     {
-        var nativeProperties = NativeMaterialProperty.GetProperties(shader);
-        return nativeProperties
-            .Select(SimpleMaterialPropertyGroup.FromNative)
-            .Where(p => p is not null)
-            .OfType<SimpleMaterialPropertyGroup>() // poor man's null suppression
-            .ToArray();
+        var propertyGroups = new List<MaterialPropertyGroup>();
+
+        var nativeProperties = NativeMaterialProperty.GetProperties(shader).ToDictionary(p => p.Name, p => p);
+        if (nativeProperties.ContainsKey("_SrcBlend") && nativeProperties.ContainsKey("_DstBlend"))
+        {
+            _ = nativeProperties.TryGetValue("_ZWrite", out var nativeZWrite);
+            _ = nativeProperties.TryGetValue("_Cull", out var nativeCull);
+            propertyGroups.Add(new BlendModePropertyGroup(shader, nativeZWrite, nativeCull));
+        }
+
+        foreach (var (name, property) in nativeProperties)
+        {
+            if (_blendModeNames.ContainsKey(name))
+            {
+                continue;
+            }
+
+            if (_scaleTranslationNames.TryGetValue(name, out var names))
+            {
+                propertyGroups.Add(new ScaleTranslationPropertyGroup(names.ScaleName, names.TranslationName, property));
+                continue;
+            }
+
+            var simpleProperty = SimpleMaterialPropertyGroup.FromNative(property);
+            if (simpleProperty is null)
+            {
+                // unsupported
+                continue;
+            }
+
+            propertyGroups.Add(simpleProperty);
+        }
+
+        return propertyGroups;
     }
 
     /// <summary>
-    /// Gets the update method used for the given material property.
+    /// Gets the update method used for the given managed/native property combination.
     /// </summary>
-    /// <param name="simpleProperty">The managed property.</param>
+    /// <param name="managedProperty">The managed property.</param>
+    /// <param name="nativeProperty">The native property.</param>
     /// <returns>The method to call.</returns>
     /// <exception cref="MissingMethodException">Thrown if no matching method can be found.</exception>
-    public static MethodInfo GetMaterialPropertyUpdateMethod(SimpleMaterialPropertyGroup simpleProperty)
+    public static MethodInfo GetMaterialPropertyUpdateMethod
+    (
+        ManagedMaterialProperty managedProperty,
+        NativeMaterialProperty nativeProperty
+    )
     {
-        if (_materialPropertyUpdateMethods.TryGetValue(simpleProperty.Property.Type, out var updateMethod))
+        if (_materialPropertyUpdateMethods.TryGetValue(managedProperty.Type, out var updateMethod))
         {
             return updateMethod;
         }
 
-        if (simpleProperty.Native.IsTexture)
+        if (nativeProperty.IsTexture)
         {
-            return simpleProperty.Native.Flags.HasFlag(ShaderPropertyFlags.Normal)
+            return nativeProperty.Flags.HasFlag(ShaderPropertyFlags.Normal)
                 ? _materialPropertyUpdateNormalMapMethod
-                : simpleProperty.Native.TextureDimension is TextureDimension.Cube
+                : nativeProperty.TextureDimension is TextureDimension.Cube
                     ? _materialPropertyUpdateCubemapMethod
                     : _materialPropertyUpdateTextureMethod;
         }
 
-        if (simpleProperty.Property.Type.IsEnum)
+        if (managedProperty.Type.IsEnum)
         {
             return _materialPropertyUpdateEnumMethods.GetOrAdd
             (
-                simpleProperty.Property.Type,
+                managedProperty.Type,
                 t => _genericMaterialPropertyUpdateEnumMethod.MakeGenericMethod(t)
             );
         }

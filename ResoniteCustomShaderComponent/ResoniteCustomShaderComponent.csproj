@@ -39,4 +39,16 @@
       <PackageReference Include="StrictEmit" Version="2.9.0" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Compile Update="TypeGeneration\Properties\BlendModePropertyGroup.cs">
+        <DependentUpon>MaterialPropertyGroup.cs</DependentUpon>
+      </Compile>
+      <Compile Update="TypeGeneration\Properties\ScaleTranslationPropertyGroup.cs">
+        <DependentUpon>MaterialPropertyGroup.cs</DependentUpon>
+      </Compile>
+      <Compile Update="TypeGeneration\Properties\SimpleMaterialPropertyGroup.cs">
+        <DependentUpon>MaterialPropertyGroup.cs</DependentUpon>
+      </Compile>
+    </ItemGroup>
+
 </Project>
