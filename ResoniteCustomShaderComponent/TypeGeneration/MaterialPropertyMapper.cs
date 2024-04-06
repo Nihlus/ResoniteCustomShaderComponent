@@ -133,7 +133,7 @@ public static class MaterialPropertyMapper
 
     private static readonly MethodInfo _materialPropertyUpdateCubemapMethod = typeof(Material).GetMethod(nameof(Material.UpdateCubemap))!;
     private static readonly MethodInfo _materialPropertyUpdateTextureMethod = typeof(MaterialExtensions).GetMethod(nameof(MaterialExtensions.UpdateTexture))!;
-    private static readonly MethodInfo _materialPropertyUpdateNormalMapMethod = typeof(MaterialExtensions).GetMethod(nameof(Material.UpdateNormalMap))!;
+    private static readonly MethodInfo _materialPropertyUpdateNormalMapMethod = typeof(MaterialExtensions).GetMethod(nameof(MaterialExtensions.UpdateNormalMap))!;
 
     private static readonly MethodInfo _genericMaterialPropertyUpdateEnumMethod = typeof(MaterialExtensions).GetMethod(nameof(MaterialExtensions.UpdateEnum))!;
     private static readonly ConcurrentDictionary<Type, MethodInfo> _materialPropertyUpdateEnumMethods = new();
@@ -148,11 +148,25 @@ public static class MaterialPropertyMapper
         var propertyGroups = new List<MaterialPropertyGroup>();
 
         var nativeProperties = NativeMaterialProperty.GetProperties(shader).ToDictionary(p => p.Name, p => p);
-        if (nativeProperties.ContainsKey("_SrcBlend") && nativeProperties.ContainsKey("_DstBlend"))
+        if (nativeProperties.TryGetValue("_SrcBlend", out var srcBlend) && nativeProperties.TryGetValue("_DstBlend", out var dstBlend))
         {
             _ = nativeProperties.TryGetValue("_ZWrite", out var nativeZWrite);
             _ = nativeProperties.TryGetValue("_Cull", out var nativeCull);
-            propertyGroups.Add(new BlendModePropertyGroup(shader, nativeZWrite, nativeCull));
+            _ = nativeProperties.TryGetValue("_SrcBlendAdd", out var srcBlendAdd);
+            _ = nativeProperties.TryGetValue("_SrcBlendAdd", out var dstBlendAdd);
+            propertyGroups.Add
+            (
+                new BlendModePropertyGroup
+                (
+                    shader,
+                    srcBlend,
+                    dstBlend,
+                    srcBlendAdd,
+                    dstBlendAdd,
+                    nativeZWrite,
+                    nativeCull
+                )
+            );
         }
 
         foreach (var (name, property) in nativeProperties)

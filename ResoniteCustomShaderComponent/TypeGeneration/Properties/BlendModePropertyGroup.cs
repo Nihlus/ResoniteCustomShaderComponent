@@ -18,6 +18,11 @@ namespace ResoniteCustomShaderComponent.TypeGeneration.Properties;
 /// </summary>
 public sealed class BlendModePropertyGroup : MaterialPropertyGroup
 {
+    private readonly NativeMaterialProperty _srcBlend;
+    private readonly NativeMaterialProperty _dstBlend;
+    private readonly NativeMaterialProperty? _srcBlendAdd;
+    private readonly NativeMaterialProperty? _dstBlendAdd;
+
     private static readonly MethodInfo _updateBlendMode = typeof(MaterialProvider)
         .GetMethod("UpdateBlendMode", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
@@ -65,15 +70,28 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
     /// Initializes a new instance of the <see cref="BlendModePropertyGroup"/> class.
     /// </summary>
     /// <param name="shader">The shader that the group belongs to.</param>
+    /// <param name="srcBlend">The source blend property.</param>
+    /// <param name="dstBlend">The destination blend property.</param>
+    /// <param name="srcBlendAdd">The additive source blend property.</param>
+    /// <param name="dstBlendAdd">The additive destination blend property.</param>
     /// <param name="nativeZWrite">The native Z-buffer write property.</param>
     /// <param name="nativeCull">The native polygon culling property.</param>
     public BlendModePropertyGroup
     (
         Shader shader,
+        NativeMaterialProperty srcBlend,
+        NativeMaterialProperty dstBlend,
+        NativeMaterialProperty? srcBlendAdd = null,
+        NativeMaterialProperty? dstBlendAdd = null,
         NativeMaterialProperty? nativeZWrite = null,
         NativeMaterialProperty? nativeCull = null
     )
     {
+        _srcBlend = srcBlend;
+        _dstBlend = dstBlend;
+        _srcBlendAdd = srcBlendAdd;
+        _dstBlendAdd = dstBlendAdd;
+
         this.BlendMode = new ManagedMaterialProperty(nameof(this.BlendMode), typeof(BlendMode));
         this.RenderQueue = new ManagedMaterialProperty(nameof(this.RenderQueue), typeof(int));
 
@@ -113,6 +131,19 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
     /// <inheritdoc />
     public override IEnumerable<NativeMaterialProperty> GetNativeProperties()
     {
+        yield return _srcBlend;
+        yield return _dstBlend;
+
+        if (_srcBlendAdd is not null)
+        {
+            yield return _srcBlendAdd;
+        }
+
+        if (_dstBlendAdd is not null)
+        {
+            yield return _dstBlendAdd;
+        }
+
         if (this.NativeZWrite is not null)
         {
             yield return this.NativeZWrite;
@@ -316,36 +347,15 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
             //   Material
             //   int
             //   Sync<Sidedness>
-            il.EmitGetProperty<Sync<Sidedness>>(nameof(Sync<Sidedness>.Value));
-
-            // stack:
-            //   Material
-            //   int
-            //   Sidedness
             il.EmitLoadArgument(0);
             il.EmitLoadField(this.BlendMode.Field);
-            il.EmitGetProperty<Sync<BlendMode>>(nameof(Sync<BlendMode>.Value));
 
             // stack:
             //   Material
             //   int
-            //   Sidedness
-            //   BlendMode
-            il.EmitCallDirect(typeof(MaterialHelper).GetMethod
-            (
-                nameof(MaterialHelper.GetCulling),
-                [typeof(Sidedness), typeof(BlendMode)]
-            )!);
-            il.EmitConvertToFloat();
-
-            // stack:
-            //   Material
-            //   int
-            //   float
-            il.EmitCallVirtual<Material>
-            (
-                nameof(Material.UpdateFloat), [typeof(int), typeof(Sync<float>)]
-            );
+            //   Sync<Sidedness>
+            //   Sync<BlendMode>
+            il.EmitCallDirect(typeof(MaterialExtensions).GetMethod(nameof(MaterialExtensions.UpdateSidedness))!);
         }
     }
 }

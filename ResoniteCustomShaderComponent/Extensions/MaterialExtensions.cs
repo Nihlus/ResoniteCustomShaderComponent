@@ -60,4 +60,28 @@ public static class MaterialExtensions
         var texture = MaterialProviderBase<Material>.GetTexture(field, unloadedOverride);
         material.SetTexture(property, texture);
     }
+
+    /// <summary>
+    /// Updates the sidedness of a material.
+    /// </summary>
+    /// <param name="material">The material.</param>
+    /// <param name="property">The index of the culling property.</param>
+    /// <param name="sidedness">The sidedness.</param>
+    /// <param name="blendMode">The blend mode.</param>
+    public static void UpdateSidedness
+    (
+        this Material material,
+        int property,
+        Sync<Sidedness> sidedness,
+        Sync<BlendMode> blendMode
+    )
+    {
+        if (!blendMode.WasChanged && !sidedness.WasChanged)
+        {
+            return;
+        }
+
+        sidedness.WasChanged = false;
+        material.SetFloat(property, (float)sidedness.Value.GetCulling(blendMode.Value));
+    }
 }
