@@ -6,7 +6,6 @@
 
 using Elements.Core;
 using FrooxEngine;
-using FrooxEngine.UIX;
 using ResoniteCustomShaderComponent.Shaders;
 using ResoniteCustomShaderComponent.TypeGeneration;
 
@@ -26,10 +25,14 @@ public class CustomShader : Component
     public readonly Sync<Uri?> ShaderURL = new();
 
     /// <summary>
-    /// Gets the dynamically generated shader properties.
+    /// Gets the dynamically generated material.
     /// </summary>
-    [HideInInspector]
-    public readonly ReadOnlyRef<DynamicShader?> ShaderProperties = new();
+    public readonly ReadOnlyRef<DynamicShader?> Material = new();
+
+    /// <summary>
+    /// Gets the load state of the dynamic shader.
+    /// </summary>
+    public readonly Sync<AssetLoadState> Status = new();
 
     private readonly SemaphoreSlim _shaderUpdateLock = new(1);
 
@@ -39,6 +42,12 @@ public class CustomShader : Component
         base.OnStart();
 
         this.ShaderURL.OnValueChange += OnShaderURLValueChange;
+
+        if (this.ShaderURL.Value is not null && this.Material.Target is null)
+        {
+            // force load if we start with an uninitialized material
+            OnShaderURLValueChange(this.ShaderURL);
+        }
     }
 
     private void OnShaderURLValueChange(SyncField<Uri?> shaderUrl)
@@ -49,6 +58,7 @@ public class CustomShader : Component
     private async Task UpdateDynamicShaderAsync(Uri? shaderUrl)
     {
         await _shaderUpdateLock.WaitAsync();
+        this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.LoadStarted);
 
         TaskCompletionSource<int>? worldCompletionSource = null;
 
@@ -61,9 +71,11 @@ public class CustomShader : Component
                 (
                     () =>
                     {
-                        this.ShaderProperties.Target?.Destroy();
-                        this.ShaderProperties.ForceWrite(null);
+                        this.Material.Target?.Destroy();
+                        this.Material.ForceWrite(null);
 
+                        this.Status.Value = AssetLoadState.Unloaded;
+                        TriggerChangedEvent();
                         worldCompletionSource.SetResult(1);
                     }
                 );
@@ -86,8 +98,11 @@ public class CustomShader : Component
                 (
                     () =>
                     {
-                        this.ShaderProperties.Target?.Destroy();
-                        this.ShaderProperties.ForceWrite(null);
+                        this.Material.Target?.Destroy();
+                        this.Material.ForceWrite(null);
+
+                        this.Status.Value = AssetLoadState.Failed;
+                        TriggerChangedEvent();
 
                         worldCompletionSource.SetResult(1);
                     }
@@ -96,11 +111,15 @@ public class CustomShader : Component
                 return;
             }
 
-            if (this.ShaderProperties.Target?.GetType() == shaderType)
+            if (this.Material.Target?.GetType() == shaderType)
             {
                 // no changes necessary
+                this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.FullyLoaded);
+
                 return;
             }
+
+            this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.PartiallyLoaded);
 
             worldCompletionSource = new();
             this.World.RunSynchronously
@@ -126,8 +145,10 @@ public class CustomShader : Component
                         );
 
                         // get outta here
-                        this.ShaderProperties.Target?.Destroy();
-                        this.ShaderProperties.ForceWrite(shaderProperties);
+                        this.Material.Target?.Destroy();
+                        this.Material.ForceWrite(shaderProperties);
+
+                        this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.FullyLoaded);
 
                         worldCompletionSource.SetResult(1);
                     }
@@ -138,6 +159,13 @@ public class CustomShader : Component
                     }
                 }
             );
+        }
+        catch (Exception e)
+        {
+            UniLog.Log("Failed to load shader");
+            UniLog.Log(e);
+
+            this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.Failed);
         }
         finally
         {
@@ -156,9 +184,16 @@ public class CustomShader : Component
     }
 
     /// <inheritdoc />
+    protected override void InitializeSyncMemberDefaults()
+    {
+        base.InitializeSyncMemberDefaults();
+        this.Status.Value = AssetLoadState.Unloaded;
+    }
+
+    /// <inheritdoc />
     protected override void OnDestroy()
     {
         base.OnDestroy();
-        this.ShaderProperties.Target?.Destroy();
+        this.Material.Target?.Destroy();
     }
 }
