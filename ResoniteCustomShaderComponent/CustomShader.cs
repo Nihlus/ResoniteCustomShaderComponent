@@ -18,7 +18,7 @@ namespace ResoniteCustomShaderComponent;
 /// Represents a custom, dynamically loaded shader.
 /// </summary>
 [Category(["Assets/Materials"])]
-public class CustomShader : AssetProvider<Material>, ICustomInspector
+public class CustomShader : Component
 {
     /// <summary>
     /// Gets the Uri of the shader bundle used by the shader program.
@@ -65,7 +65,6 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
                         this.ShaderProperties.ForceWrite(null);
 
                         worldCompletionSource.SetResult(1);
-                        AssetRemoved();
                     }
                 );
 
@@ -91,7 +90,6 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
                         this.ShaderProperties.ForceWrite(null);
 
                         worldCompletionSource.SetResult(1);
-                        AssetRemoved();
                     }
                 );
 
@@ -131,7 +129,6 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
                         this.ShaderProperties.Target?.Destroy();
                         this.ShaderProperties.ForceWrite(shaderProperties);
 
-                        AssetUpdated();
                         worldCompletionSource.SetResult(1);
                     }
                     catch (Exception e)
@@ -163,28 +160,5 @@ public class CustomShader : AssetProvider<Material>, ICustomInspector
     {
         base.OnDestroy();
         this.ShaderProperties.Target?.Destroy();
-    }
-
-    /// <inheritdoc />
-    protected override void FreeAsset()
-    {
-    }
-
-    /// <inheritdoc />
-    protected override void UpdateAsset()
-    {
-    }
-
-    /// <inheritdoc />
-    public override bool IsAssetAvailable => this.ShaderProperties.Target?.IsAssetAvailable ?? false;
-
-    /// <inheritdoc />
-    public override Material Asset => this.ShaderProperties.Target?.Asset!;
-
-    /// <inheritdoc />
-    public void BuildInspectorUI(UIBuilder ui)
-    {
-        WorkerInspector.BuildInspectorUI(this, ui);
-        this.ShaderProperties.Target?.BuildNestedInspectorUI(ui);
     }
 }
