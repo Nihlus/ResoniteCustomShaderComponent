@@ -35,6 +35,14 @@ public abstract class MaterialPropertyGroup
     }
 
     /// <summary>
+    /// Emits requisite code to update the material's keywords using the group's properties.
+    /// </summary>
+    /// <param name="il">The IL generator to generate in.</param>
+    public virtual void EmitUpdateKeywords(ILGenerator il)
+    {
+    }
+
+    /// <summary>
     /// Emits requisite code to update the material using the group's properties.
     /// </summary>
     /// <param name="il">The IL generator to generate in.</param>

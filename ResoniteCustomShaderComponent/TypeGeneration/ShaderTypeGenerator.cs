@@ -8,14 +8,10 @@ using System.Reflection;
 using System.Reflection.Emit;
 using Elements.Core;
 using FrooxEngine;
-using ResoniteCustomShaderComponent.Extensions;
 using ResoniteCustomShaderComponent.Shaders;
 using ResoniteCustomShaderComponent.TypeGeneration.Properties;
 using StrictEmit;
-using UnityEngine;
-using UnityEngine.Rendering;
 using Material = FrooxEngine.Material;
-using Rect = Elements.Core.Rect;
 using Shader = UnityEngine.Shader;
 
 namespace ResoniteCustomShaderComponent.TypeGeneration;
@@ -70,11 +66,6 @@ internal static class ShaderTypeGenerator
             typeof(DynamicShader)
         );
 
-        for (var i = 0; i < shader.passCount; ++i)
-        {
-            var tag = shader.FindPassTagValue(0, new ShaderTagId("RenderType"));
-        }
-
         var propertyGroups = MaterialPropertyMapper.GetPropertyGroups(shader);
 
         typeBuilder.DefineDynamicMaterialPropertyFields
@@ -98,6 +89,7 @@ internal static class ShaderTypeGenerator
         );
 
         typeBuilder.EmitInitializeSyncMemberDefaults(propertyGroups);
+        typeBuilder.EmitUpdateKeywords(propertyGroups);
         typeBuilder.EmitUpdateMaterial(propertyGroups);
 
         var type = typeBuilder.CreateType();
@@ -202,6 +194,38 @@ internal static class ShaderTypeGenerator
         // stack:
         //  <empty>
         updateMaterialIL.EmitReturn();
+    }
+
+    private static void EmitUpdateKeywords
+    (
+        this TypeBuilder typeBuilder,
+        IEnumerable<MaterialPropertyGroup> propertyGroups
+    )
+    {
+        var updateMaterial = typeBuilder.DefineMethod
+        (
+            "UpdateKeywords",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final,
+            CallingConventions.Standard,
+            typeof(void),
+            [typeof(ShaderKeywords)]
+        );
+
+        typeBuilder.DefineMethodOverride
+        (
+            updateMaterial,
+            typeof(MaterialProvider).GetMethod("UpdateKeywords", BindingFlags.Instance | BindingFlags.NonPublic)!
+        );
+
+        var updateKeywordsIL = updateMaterial.GetILGenerator();
+        foreach (var propertyGroup in propertyGroups)
+        {
+            propertyGroup.EmitUpdateKeywords(updateKeywordsIL);
+        }
+
+        // stack:
+        //  <empty>
+        updateKeywordsIL.EmitReturn();
     }
 
     private static void EmitStaticConstructor

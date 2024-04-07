@@ -35,6 +35,15 @@ public abstract class DynamicShader : SingleShaderMaterialProvider
     protected override Uri? ShaderURL => _shaderUrl;
 
     /// <inheritdoc />
+    protected override string CutoutFlag => "_ALPHATEST_ON";
+
+    /// <inheritdoc />
+    protected override string AlphaBlendFlag => "_ALPHABLEND_ON";
+
+    /// <inheritdoc />
+    protected override string AlphaPremultiplyFlag => "_ALPHAPREMULTIPLY_ON";
+
+    /// <inheritdoc />
     protected DynamicShader()
     {
     }
@@ -61,39 +70,6 @@ public abstract class DynamicShader : SingleShaderMaterialProvider
     protected override void GetMaterialProperties(List<MaterialProperty> properties)
     {
         properties.AddRange(GetMaterialPropertyNames());
-    }
-
-    /// <inheritdoc />
-    protected override void UpdateKeywords(ShaderKeywords keywords)
-    {
-        //throw new NotImplementedException();
-    }
-
-    /// <summary>
-    /// Builds UI in an inspector, nested underneath an outer <see cref="CustomShader"/> component. This filters out a
-    /// few internal properties that shouldn't be visible.
-    /// </summary>
-    /// <param name="ui">The UI builder.</param>
-    public void BuildNestedInspectorUI(UIBuilder ui)
-    {
-        WorkerInspector.BuildInspectorUI
-        (
-            this,
-            ui,
-            m => m.Name is not
-            (
-                "persistent" or
-                "Enabled" or
-                "UpdateOrder" or
-                "_shader"
-            )
-        );
-
-        var materialAssetMetadata = ui.Root.AttachComponent<MaterialAssetMetadata>();
-        materialAssetMetadata.Material.Target = this;
-
-        ui.Text("Inspector.Material.VariantInfo".AsLocaleKey(("variantID", materialAssetMetadata.VariantID), ("rawVariantID", materialAssetMetadata.RawVariantID)));
-        ui.Text("Inspector.Material.WaitingForApply".AsLocaleKey(null, "waiting", materialAssetMetadata.WaitingForApply));
     }
 
     /// <inheritdoc />

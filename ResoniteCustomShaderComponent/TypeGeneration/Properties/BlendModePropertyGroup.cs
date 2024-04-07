@@ -26,6 +26,16 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
     private static readonly MethodInfo _updateBlendMode = typeof(MaterialProvider)
         .GetMethod("UpdateBlendMode", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
+    private static readonly MethodInfo _setBlendModeKeywords = typeof(MaterialProvider)
+        .GetMethod
+        (
+            "SetBlendModeKeywords",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            null,
+            [typeof(ShaderKeywords), typeof(Sync<BlendMode>)],
+            []
+        )!;
+
     /// <summary>
     /// Gets the virtual blend mode property.
     /// </summary>
@@ -262,6 +272,35 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
                 "Value"
             );
         }
+    }
+
+    /// <inheritdoc />
+    public override void EmitUpdateKeywords(ILGenerator il)
+    {
+        if (this.BlendMode.Field is null)
+        {
+            throw new InvalidOperationException();
+        }
+
+        // stack:
+        //   <empty>
+        il.EmitLoadArgument(0);
+
+        // stack:
+        //   this
+        il.EmitLoadArgument(1);
+
+        // stack:
+        //   this
+        //   ShaderKeywords
+        il.EmitLoadArgument(0);
+        il.EmitLoadField(this.BlendMode.Field);
+
+        // stack:
+        //   this
+        //   ShaderKeywords
+        //   Sync<BlendMode>
+        il.EmitCallVirtual(_setBlendModeKeywords);
     }
 
     /// <inheritdoc />
