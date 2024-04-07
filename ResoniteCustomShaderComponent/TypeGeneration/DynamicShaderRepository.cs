@@ -93,12 +93,6 @@ public static class DynamicShaderRepository
             return shaderType;
         }
 
-        var shader = await LoadUnityShaderAsync(shaderUrl);
-        if (shader is null)
-        {
-            return null;
-        }
-
         await _typeGenerationLock.WaitAsync();
         try
         {
@@ -107,12 +101,22 @@ public static class DynamicShaderRepository
                 return shaderType;
             }
 
+            if (TryLoadCachedShaderType(shaderHash, out shaderType))
+            {
+                _dynamicShaderTypes[shaderHash] = shaderType;
+                return shaderType;
+            }
+
+            var shader = await LoadUnityShaderAsync(shaderUrl);
+            if (shader is null)
+            {
+                return null;
+            }
+
             return _dynamicShaderTypes.GetOrAdd
             (
                 shaderHash,
-                hash => TryLoadCachedShaderType(hash, out var cachedShader)
-                    ? cachedShader
-                    : ShaderTypeGenerator.DefineDynamicShaderType(_shaderCacheDirectory, shaderHash, shader)
+                hash => ShaderTypeGenerator.DefineDynamicShaderType(_shaderCacheDirectory, hash, shader)
             );
         }
         catch (Exception e)
