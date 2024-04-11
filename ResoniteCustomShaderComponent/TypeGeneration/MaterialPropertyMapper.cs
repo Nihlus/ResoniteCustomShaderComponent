@@ -11,7 +11,6 @@ using FrooxEngine;
 using ResoniteCustomShaderComponent.Extensions;
 using ResoniteCustomShaderComponent.TypeGeneration.Properties;
 using UnityEngine.Rendering;
-using BlendMode = FrooxEngine.BlendMode;
 
 namespace ResoniteCustomShaderComponent.TypeGeneration;
 
