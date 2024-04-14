@@ -46,8 +46,8 @@ public class ManagedMaterialProperty
         IReadOnlyList<CustomAttributeBuilder>? customAttributes = null
     )
     {
-        this.Name = name;
-        this.Type = type;
-        this.CustomAttributes = customAttributes ?? Array.Empty<CustomAttributeBuilder>();
+        Name = name;
+        Type = type;
+        CustomAttributes = customAttributes ?? Array.Empty<CustomAttributeBuilder>();
     }
 }

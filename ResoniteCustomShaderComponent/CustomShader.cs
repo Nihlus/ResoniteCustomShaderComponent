@@ -41,12 +41,12 @@ public class CustomShader : Component
     {
         base.OnStart();
 
-        this.ShaderURL.OnValueChange += OnShaderURLValueChange;
+        ShaderURL.OnValueChange += OnShaderURLValueChange;
 
-        if (this.ShaderURL.Value is not null && this.Material.Target is null)
+        if (ShaderURL.Value is not null && Material.Target is null)
         {
             // force load if we start with an uninitialized material
-            OnShaderURLValueChange(this.ShaderURL);
+            OnShaderURLValueChange(ShaderURL);
         }
     }
 
@@ -58,7 +58,7 @@ public class CustomShader : Component
     private async Task UpdateDynamicShaderAsync(Uri? shaderUrl)
     {
         await _shaderUpdateLock.WaitAsync();
-        this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.LoadStarted);
+        World.RunSynchronously(() => Status.Value = AssetLoadState.LoadStarted);
 
         TaskCompletionSource<int>? worldCompletionSource = null;
 
@@ -67,14 +67,14 @@ public class CustomShader : Component
             if (shaderUrl is null)
             {
                 worldCompletionSource = new();
-                this.World.RunSynchronously
+                World.RunSynchronously
                 (
                     () =>
                     {
-                        this.Material.Target?.Destroy();
-                        this.Material.ForceWrite(null);
+                        Material.Target?.Destroy();
+                        Material.ForceWrite(null);
 
-                        this.Status.Value = AssetLoadState.Unloaded;
+                        Status.Value = AssetLoadState.Unloaded;
                         TriggerChangedEvent();
                         worldCompletionSource.SetResult(1);
                     }
@@ -84,24 +84,24 @@ public class CustomShader : Component
             }
 
             // whitelist shader
-            var assetSignature = this.Cloud.Assets.DBSignature(shaderUrl);
+            var assetSignature = Cloud.Assets.DBSignature(shaderUrl);
 
             UniLog.Log($"Whitelisting shader with signature \"{assetSignature}\"");
-            await this.Engine.LocalDB.WriteVariableAsync(assetSignature, true);
+            await Engine.LocalDB.WriteVariableAsync(assetSignature, true);
             UniLog.Log("Shader whitelisted");
 
             var shaderType = await DynamicShaderRepository.GetDynamicShaderTypeAsync(shaderUrl);
             if (shaderType is null)
             {
                 worldCompletionSource = new();
-                this.World.RunSynchronously
+                World.RunSynchronously
                 (
                     () =>
                     {
-                        this.Material.Target?.Destroy();
-                        this.Material.ForceWrite(null);
+                        Material.Target?.Destroy();
+                        Material.ForceWrite(null);
 
-                        this.Status.Value = AssetLoadState.Failed;
+                        Status.Value = AssetLoadState.Failed;
                         TriggerChangedEvent();
 
                         worldCompletionSource.SetResult(1);
@@ -111,25 +111,25 @@ public class CustomShader : Component
                 return;
             }
 
-            if (this.Material.Target?.GetType() == shaderType)
+            if (Material.Target?.GetType() == shaderType)
             {
                 // no changes necessary
-                this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.FullyLoaded);
+                World.RunSynchronously(() => Status.Value = AssetLoadState.FullyLoaded);
 
                 return;
             }
 
-            this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.PartiallyLoaded);
+            World.RunSynchronously(() => Status.Value = AssetLoadState.PartiallyLoaded);
 
             worldCompletionSource = new();
-            this.World.RunSynchronously
+            World.RunSynchronously
             (
                 () =>
                 {
                     UniLog.Log("Creating shader instance");
                     try
                     {
-                        var shaderProperties = (DynamicShader)this.Slot.AttachComponent
+                        var shaderProperties = (DynamicShader)Slot.AttachComponent
                         (
                             shaderType,
                             beforeAttach: c =>
@@ -137,18 +137,18 @@ public class CustomShader : Component
                                 ((DynamicShader)c).SetShaderURL(shaderUrl);
                                 ((DynamicShader)c).DriveControlFields
                                 (
-                                    this.persistent,
-                                    this.updateOrder,
-                                    this.EnabledField
+                                    persistent,
+                                    updateOrder,
+                                    EnabledField
                                 );
                             }
                         );
 
                         // get outta here
-                        this.Material.Target?.Destroy();
-                        this.Material.ForceWrite(shaderProperties);
+                        Material.Target?.Destroy();
+                        Material.ForceWrite(shaderProperties);
 
-                        this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.FullyLoaded);
+                        World.RunSynchronously(() => Status.Value = AssetLoadState.FullyLoaded);
 
                         worldCompletionSource.SetResult(1);
                     }
@@ -165,7 +165,7 @@ public class CustomShader : Component
             UniLog.Log("Failed to load shader");
             UniLog.Log(e);
 
-            this.World.RunSynchronously(() => this.Status.Value = AssetLoadState.Failed);
+            World.RunSynchronously(() => Status.Value = AssetLoadState.Failed);
         }
         finally
         {
@@ -187,13 +187,13 @@ public class CustomShader : Component
     protected override void InitializeSyncMemberDefaults()
     {
         base.InitializeSyncMemberDefaults();
-        this.Status.Value = AssetLoadState.Unloaded;
+        Status.Value = AssetLoadState.Unloaded;
     }
 
     /// <inheritdoc />
     protected override void OnDestroy()
     {
         base.OnDestroy();
-        this.Material.Target?.Destroy();
+        Material.Target?.Destroy();
     }
 }

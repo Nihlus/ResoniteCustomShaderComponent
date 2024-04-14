@@ -102,39 +102,39 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
         _srcBlendAdd = srcBlendAdd;
         _dstBlendAdd = dstBlendAdd;
 
-        this.BlendMode = new ManagedMaterialProperty(nameof(this.BlendMode), typeof(BlendMode));
-        this.RenderQueue = new ManagedMaterialProperty(nameof(this.RenderQueue), typeof(int));
+        BlendMode = new ManagedMaterialProperty(nameof(BlendMode), typeof(BlendMode));
+        RenderQueue = new ManagedMaterialProperty(nameof(RenderQueue), typeof(int));
 
-        this.NativeZWrite = nativeZWrite;
+        NativeZWrite = nativeZWrite;
         if (nativeZWrite is not null)
         {
-            this.ZWrite = new ManagedMaterialProperty(nameof(this.ZWrite), typeof(ZWrite));
+            ZWrite = new ManagedMaterialProperty(nameof(ZWrite), typeof(ZWrite));
         }
 
-        this.NativeCull = nativeCull;
+        NativeCull = nativeCull;
         if (nativeCull is not null)
         {
-            this.Sidedness = new ManagedMaterialProperty(nameof(this.Sidedness), typeof(Sidedness));
+            Sidedness = new ManagedMaterialProperty(nameof(Sidedness), typeof(Sidedness));
         }
 
-        this.DefaultBlendMode = shader.GetDefaultBlendMode();
-        this.DefaultRenderQueue = shader.renderQueue;
+        DefaultBlendMode = shader.GetDefaultBlendMode();
+        DefaultRenderQueue = shader.renderQueue;
     }
 
     /// <inheritdoc />
     public override IEnumerable<ManagedMaterialProperty> GetManagedProperties()
     {
-        yield return this.BlendMode;
-        yield return this.RenderQueue;
+        yield return BlendMode;
+        yield return RenderQueue;
 
-        if (this.ZWrite is not null)
+        if (ZWrite is not null)
         {
-            yield return this.ZWrite;
+            yield return ZWrite;
         }
 
-        if (this.Sidedness is not null)
+        if (Sidedness is not null)
         {
-            yield return this.Sidedness;
+            yield return Sidedness;
         }
     }
 
@@ -154,21 +154,21 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
             yield return _dstBlendAdd;
         }
 
-        if (this.NativeZWrite is not null)
+        if (NativeZWrite is not null)
         {
-            yield return this.NativeZWrite;
+            yield return NativeZWrite;
         }
 
-        if (this.NativeCull is not null)
+        if (NativeCull is not null)
         {
-            yield return this.NativeCull;
+            yield return NativeCull;
         }
     }
 
     /// <inheritdoc />
     public override void EmitInitializeSyncMemberDefaults(ILGenerator il)
     {
-        if (this.BlendMode.Field is null || this.RenderQueue.Field is null)
+        if (BlendMode.Field is null || RenderQueue.Field is null)
         {
             throw new InvalidOperationException();
         }
@@ -179,18 +179,18 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
 
         // stack:
         //   this
-        il.EmitLoadField(this.BlendMode.Field);
+        il.EmitLoadField(BlendMode.Field);
 
         // stack:
         //   ISyncMember
-        il.EmitConstantInt((int)this.DefaultBlendMode);
+        il.EmitConstantInt((int)DefaultBlendMode);
 
         // stack:
         //   ISyncMember
         //   BlendMode
         il.EmitSetProperty
         (
-            this.BlendMode.Field.FieldType,
+            BlendMode.Field.FieldType,
             "Value"
         );
 
@@ -200,24 +200,24 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
 
         // stack:
         //   this
-        il.EmitLoadField(this.RenderQueue.Field);
+        il.EmitLoadField(RenderQueue.Field);
 
         // stack:
         //   ISyncMember
-        il.EmitConstantInt(this.DefaultRenderQueue);
+        il.EmitConstantInt(DefaultRenderQueue);
 
         // stack:
         //   ISyncMember
         //   BlendMode
         il.EmitSetProperty
         (
-            this.RenderQueue.Field.FieldType,
+            RenderQueue.Field.FieldType,
             "Value"
         );
 
-        if (this.ZWrite is not null)
+        if (ZWrite is not null)
         {
-            if (this.ZWrite.Field is null)
+            if (ZWrite.Field is null)
             {
                 throw new InvalidOperationException();
             }
@@ -228,7 +228,7 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
 
             // stack:
             //   this
-            il.EmitLoadField(this.ZWrite.Field);
+            il.EmitLoadField(ZWrite.Field);
 
             // stack:
             //   ISyncMember
@@ -239,14 +239,14 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
             //   BlendMode
             il.EmitSetProperty
             (
-                this.ZWrite.Field.FieldType,
+                ZWrite.Field.FieldType,
                 "Value"
             );
         }
 
-        if (this.Sidedness is not null)
+        if (Sidedness is not null)
         {
-            if (this.Sidedness.Field is null)
+            if (Sidedness.Field is null)
             {
                 throw new InvalidOperationException();
             }
@@ -257,7 +257,7 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
 
             // stack:
             //   this
-            il.EmitLoadField(this.Sidedness.Field);
+            il.EmitLoadField(Sidedness.Field);
 
             // stack:
             //   ISyncMember
@@ -268,7 +268,7 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
             //   BlendMode
             il.EmitSetProperty
             (
-                this.Sidedness.Field.FieldType,
+                Sidedness.Field.FieldType,
                 "Value"
             );
         }
@@ -277,7 +277,7 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
     /// <inheritdoc />
     public override void EmitUpdateKeywords(ILGenerator il)
     {
-        if (this.BlendMode.Field is null)
+        if (BlendMode.Field is null)
         {
             throw new InvalidOperationException();
         }
@@ -294,7 +294,7 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
         //   this
         //   ShaderKeywords
         il.EmitLoadArgument(0);
-        il.EmitLoadField(this.BlendMode.Field);
+        il.EmitLoadField(BlendMode.Field);
 
         // stack:
         //   this
@@ -306,7 +306,7 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
     /// <inheritdoc />
     public override void EmitUpdateMaterial(ILGenerator il)
     {
-        if (this.BlendMode.Field is null || this.RenderQueue.Field is null)
+        if (BlendMode.Field is null || RenderQueue.Field is null)
         {
             throw new InvalidOperationException();
         }
@@ -323,25 +323,25 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
         //   this
         //   Material
         il.EmitLoadArgument(0);
-        il.EmitLoadField(this.BlendMode.Field);
+        il.EmitLoadField(BlendMode.Field);
 
         // stack:
         //   this
         //   Material
         //   ISyncMember
-        if (this.ZWrite is null)
+        if (ZWrite is null)
         {
             il.EmitLoadNull();
         }
         else
         {
-            if (this.ZWrite.Field is null)
+            if (ZWrite.Field is null)
             {
                 throw new InvalidOperationException();
             }
 
             il.EmitLoadArgument(0);
-            il.EmitLoadField(this.ZWrite.Field);
+            il.EmitLoadField(ZWrite.Field);
         }
 
         // stack:
@@ -350,7 +350,7 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
         //   ISyncMember
         //   ISyncMember?
         il.EmitLoadArgument(0);
-        il.EmitLoadField(this.RenderQueue.Field);
+        il.EmitLoadField(RenderQueue.Field);
 
         // stack:
         //   this
@@ -360,9 +360,9 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
         //   ISyncMember
         il.EmitCallVirtual(_updateBlendMode);
 
-        if (this.Sidedness is not null && this.NativeCull is not null)
+        if (Sidedness is not null && NativeCull is not null)
         {
-            if (this.Sidedness.Field is null || this.NativeCull.PropertyNameField is null)
+            if (Sidedness.Field is null || NativeCull.PropertyNameField is null)
             {
                 throw new InvalidOperationException();
             }
@@ -373,21 +373,21 @@ public sealed class BlendModePropertyGroup : MaterialPropertyGroup
 
             // stack:
             //   Material
-            il.EmitLoadStaticField(this.NativeCull.PropertyNameField);
+            il.EmitLoadStaticField(NativeCull.PropertyNameField);
             il.EmitCallDirect(MaterialPropertyMapper.MaterialPropertyConversion);
 
             // stack:
             //   Material
             //   int
             il.EmitLoadArgument(0);
-            il.EmitLoadField(this.Sidedness.Field);
+            il.EmitLoadField(Sidedness.Field);
 
             // stack:
             //   Material
             //   int
             //   Sync<Sidedness>
             il.EmitLoadArgument(0);
-            il.EmitLoadField(this.BlendMode.Field);
+            il.EmitLoadField(BlendMode.Field);
 
             // stack:
             //   Material

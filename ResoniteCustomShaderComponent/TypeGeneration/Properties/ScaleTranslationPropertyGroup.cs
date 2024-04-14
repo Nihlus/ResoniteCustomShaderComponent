@@ -43,34 +43,34 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
     /// <param name="native">The native property.</param>
     public ScaleTranslationPropertyGroup(string scaleName, string translationName, NativeMaterialProperty native)
     {
-        this.Scale = new ManagedMaterialProperty(scaleName, typeof(float2));
-        this.Translation = new ManagedMaterialProperty(translationName, typeof(float2));
-        this.Native = native;
+        Scale = new ManagedMaterialProperty(scaleName, typeof(float2));
+        Translation = new ManagedMaterialProperty(translationName, typeof(float2));
+        Native = native;
     }
 
     /// <inheritdoc />
     public override IEnumerable<ManagedMaterialProperty> GetManagedProperties()
     {
-        yield return this.Scale;
-        yield return this.Translation;
+        yield return Scale;
+        yield return Translation;
     }
 
     /// <inheritdoc />
     public override IEnumerable<NativeMaterialProperty> GetNativeProperties()
     {
-        yield return this.Native;
+        yield return Native;
     }
 
     /// <inheritdoc />
     public override void EmitInitializeSyncMemberDefaults(ILGenerator il)
     {
-        if (this.Scale.Field is null || this.Translation.Field is null)
+        if (Scale.Field is null || Translation.Field is null)
         {
             throw new InvalidOperationException();
         }
 
         var float2Constructor = typeof(float2).GetConstructor([typeof(float), typeof(float)])!;
-        var defaultVector = this.Native.DefaultVector ?? new Vector4(1, 1, 0, 0);
+        var defaultVector = Native.DefaultVector ?? new Vector4(1, 1, 0, 0);
 
         // stack:
         //   <empty>
@@ -78,7 +78,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
 
         // stack:
         //   this
-        il.EmitLoadField(this.Scale.Field);
+        il.EmitLoadField(Scale.Field);
 
         // stack:
         //   ISyncMember
@@ -100,7 +100,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
         //   float2
         il.EmitSetProperty
         (
-            this.Scale.Field.FieldType,
+            Scale.Field.FieldType,
             "Value"
         );
 
@@ -110,7 +110,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
 
         // stack:
         //   this
-        il.EmitLoadField(this.Translation.Field);
+        il.EmitLoadField(Translation.Field);
 
         // stack:
         //   ISyncMember
@@ -132,7 +132,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
         //   float2
         il.EmitSetProperty
         (
-            this.Translation.Field.FieldType,
+            Translation.Field.FieldType,
             "Value"
         );
     }
@@ -140,7 +140,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
     /// <inheritdoc />
     public override void EmitUpdateMaterial(ILGenerator il)
     {
-        if (this.Scale.Field is null || this.Translation.Field is null || this.Native.PropertyNameField is null)
+        if (Scale.Field is null || Translation.Field is null || Native.PropertyNameField is null)
         {
             throw new InvalidOperationException();
         }
@@ -151,7 +151,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
 
         // stack:
         //   Material
-        il.EmitLoadStaticField(this.Native.PropertyNameField);
+        il.EmitLoadStaticField(Native.PropertyNameField);
 
         // stack:
         //   Material
@@ -167,7 +167,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
         //   Material
         //   int
         //   this
-        il.EmitLoadField(this.Scale.Field);
+        il.EmitLoadField(Scale.Field);
 
         // stack:
         //   Material
@@ -180,7 +180,7 @@ public sealed class ScaleTranslationPropertyGroup : MaterialPropertyGroup
         //   int
         //   ISyncMember
         //   this
-        il.EmitLoadField(this.Translation.Field);
+        il.EmitLoadField(Translation.Field);
 
         // stack:
         //   Material

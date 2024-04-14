@@ -39,9 +39,9 @@ internal static class InitializationHook
 
     private sealed class InitializationHookConnector : IConnector
     {
-        public void AssignOwner(IImplementable owner) => this.Owner = owner;
+        public void AssignOwner(IImplementable owner) => Owner = owner;
 
-        public void RemoveOwner() => this.Owner = null;
+        public void RemoveOwner() => Owner = null;
 
         public void Initialize()
         {

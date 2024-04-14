@@ -73,40 +73,40 @@ public class NativeMaterialProperty
     /// Gets a value indicating whether the property is a texture.
     /// </summary>
     [MemberNotNullWhen(true, nameof(TextureDimension), nameof(DefaultTextureName))]
-    public bool IsTexture => this.Type is ShaderPropertyType.Texture;
+    public bool IsTexture => Type is ShaderPropertyType.Texture;
 
     /// <summary>
     /// Gets a value indicating whether the property is a range.
     /// </summary>
     [MemberNotNullWhen(true, nameof(RangeLimits), nameof(DefaultValue))]
-    public bool IsRange => this.Type is ShaderPropertyType.Range;
+    public bool IsRange => Type is ShaderPropertyType.Range;
 
     /// <summary>
     /// Gets a value indicating whether the property is a vector or vector-like value.
     /// </summary>
     [MemberNotNullWhen(true, nameof(DefaultVector))]
-    public bool IsVector => this.Type is ShaderPropertyType.Vector or ShaderPropertyType.Color;
+    public bool IsVector => Type is ShaderPropertyType.Vector or ShaderPropertyType.Color;
 
     /// <summary>
     /// Gets a value indicating whether the property is a scalar or scalar-like value.
     /// </summary>
     [MemberNotNullWhen(true, nameof(DefaultValue))]
-    public bool IsScalar => this.Type is ShaderPropertyType.Float or ShaderPropertyType.Range;
+    public bool IsScalar => Type is ShaderPropertyType.Float or ShaderPropertyType.Range;
 
     /// <summary>
     /// Gets a value indicating whether the property has a default value.
     /// </summary>
-    public bool HasDefaultValue => this.DefaultValue is not null
-                                   || this.DefaultVector is not null
-                                   || (this.DefaultTextureName is not null && this.HasSupportedDefaultTextureName);
+    public bool HasDefaultValue => DefaultValue is not null
+                                   || DefaultVector is not null
+                                   || (DefaultTextureName is not null && HasSupportedDefaultTextureName);
 
     /// <summary>
     /// Gets a value indicating whether the property has a supported default texture name.
     /// </summary>
     public bool HasSupportedDefaultTextureName =>
-        this.TextureDimension is UnityEngine.Rendering.TextureDimension.Cube
-            ? this.DefaultTextureName?.ToLowerInvariant() is "darkchecker"
-            : this.DefaultTextureName?.ToLowerInvariant() is "white" or "black" or "clear" or "darkchecker";
+        TextureDimension is UnityEngine.Rendering.TextureDimension.Cube
+            ? DefaultTextureName?.ToLowerInvariant() is "darkchecker"
+            : DefaultTextureName?.ToLowerInvariant() is "white" or "black" or "clear" or "darkchecker";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NativeMaterialProperty"/> class from the given shader
@@ -116,16 +116,16 @@ public class NativeMaterialProperty
     /// <param name="propertyIndex">The index of the property.</param>
     public NativeMaterialProperty(Shader shader, int propertyIndex)
     {
-        this.Name = shader.GetPropertyName(propertyIndex);
-        this.Description = shader.GetPropertyDescription(propertyIndex);
-        this.Type = shader.GetPropertyType(propertyIndex);
-        this.Flags = shader.GetPropertyFlags(propertyIndex);
+        Name = shader.GetPropertyName(propertyIndex);
+        Description = shader.GetPropertyDescription(propertyIndex);
+        Type = shader.GetPropertyType(propertyIndex);
+        Flags = shader.GetPropertyFlags(propertyIndex);
 
-        this.TextureDimension = this.IsTexture ? shader.GetPropertyTextureDimension(propertyIndex) : null;
-        this.RangeLimits = this.IsRange ? shader.GetPropertyRangeLimits(propertyIndex) : null;
-        this.DefaultVector = this.IsVector ? shader.GetPropertyDefaultVectorValue(propertyIndex) : null;
-        this.DefaultValue = this.IsScalar ? shader.GetPropertyDefaultFloatValue(propertyIndex) : null;
-        this.DefaultTextureName = this.IsTexture ? shader.GetPropertyTextureDefaultName(propertyIndex) : null;
+        TextureDimension = IsTexture ? shader.GetPropertyTextureDimension(propertyIndex) : null;
+        RangeLimits = IsRange ? shader.GetPropertyRangeLimits(propertyIndex) : null;
+        DefaultVector = IsVector ? shader.GetPropertyDefaultVectorValue(propertyIndex) : null;
+        DefaultValue = IsScalar ? shader.GetPropertyDefaultFloatValue(propertyIndex) : null;
+        DefaultTextureName = IsTexture ? shader.GetPropertyTextureDefaultName(propertyIndex) : null;
     }
 
     /// <summary>

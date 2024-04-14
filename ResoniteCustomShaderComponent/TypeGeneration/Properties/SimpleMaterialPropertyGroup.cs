@@ -35,8 +35,8 @@ public sealed class SimpleMaterialPropertyGroup : MaterialPropertyGroup
     /// <param name="nativeProperty">The native material property associated with this property group.</param>
     public SimpleMaterialPropertyGroup(ManagedMaterialProperty managedProperty, NativeMaterialProperty nativeProperty)
     {
-        this.Property = managedProperty;
-        this.Native = nativeProperty;
+        Property = managedProperty;
+        Native = nativeProperty;
     }
 
     /// <summary>
@@ -88,30 +88,30 @@ public sealed class SimpleMaterialPropertyGroup : MaterialPropertyGroup
     /// <inheritdoc />
     public override IEnumerable<ManagedMaterialProperty> GetManagedProperties()
     {
-        yield return this.Property;
+        yield return Property;
     }
 
     /// <inheritdoc />
     public override IEnumerable<NativeMaterialProperty> GetNativeProperties()
     {
-        yield return this.Native;
+        yield return Native;
     }
 
     /// <inheritdoc />
     public override void EmitInitializeSyncMemberDefaults(ILGenerator il)
     {
-        if (!this.Native.HasDefaultValue)
+        if (!Native.HasDefaultValue)
         {
             return;
         }
 
-        if (this.Native.IsTexture)
+        if (Native.IsTexture)
         {
             // texture defaults are provided non-statically
             return;
         }
 
-        if (this.Property.Field is null)
+        if (Property.Field is null)
         {
             throw new InvalidOperationException();
         }
@@ -122,39 +122,39 @@ public sealed class SimpleMaterialPropertyGroup : MaterialPropertyGroup
 
         // stack:
         //   this
-        il.EmitLoadField(this.Property.Field);
+        il.EmitLoadField(Property.Field);
 
         // stack:
         //   ISyncMember
-        il.EmitInlineDefault(this.Property.Type, this.Native);
+        il.EmitInlineDefault(Property.Type, Native);
 
         // stack:
         //   ISyncMember
         //   T
         il.EmitSetProperty
         (
-            this.Property.Field.FieldType,
-            this.Property.Type.IsValueType ? "Value" : "Target"
+            Property.Field.FieldType,
+            Property.Type.IsValueType ? "Value" : "Target"
         );
     }
 
     /// <inheritdoc />
     public override void EmitUpdateMaterial(ILGenerator il)
     {
-        if (this.Native.IsTexture)
+        if (Native.IsTexture)
         {
             il.EmitTextureUpdateCall
             (
-                this.Property,
-                this.Native
+                Property,
+                Native
             );
         }
         else
         {
             il.EmitSimpleUpdateCall
             (
-                this.Property,
-                this.Native
+                Property,
+                Native
             );
         }
     }

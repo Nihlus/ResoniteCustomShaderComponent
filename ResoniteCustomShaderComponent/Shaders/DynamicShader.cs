@@ -89,12 +89,12 @@ public abstract class DynamicShader : SingleShaderMaterialProvider
     public void DriveControlFields(Sync<bool> upstreamPersistent, Sync<int> upstreamUpdateOrder, Sync<bool> upstreamEnabled)
     {
         _persistentDrive.Target?.Destroy();
-        _persistentDrive.Target = this.persistent.DriveFrom(upstreamPersistent);
+        _persistentDrive.Target = persistent.DriveFrom(upstreamPersistent);
 
         _updateOrderDrive.Target?.Destroy();
         _updateOrderDrive.Target = updateOrder.DriveFrom(upstreamUpdateOrder);
 
         _enabledDrive.Target?.Destroy();
-        _enabledDrive.Target = this.EnabledField.DriveFrom(upstreamEnabled);
+        _enabledDrive.Target = EnabledField.DriveFrom(upstreamEnabled);
     }
 }
